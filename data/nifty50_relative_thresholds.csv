@@ -1,0 +1,6 @@
+Metric,Threshold
+MarketCap_Share_25pct,0.009466084529618397
+MarketCap_Percentile_25pct,0.265
+Liquidity_Share_25pct,0.01057658617760323
+Liquidity_Percentile_25pct,0.265
+Liquidity_Stability_75pct,0.7673357261580149

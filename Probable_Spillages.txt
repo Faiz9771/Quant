@@ -1,0 +1,7 @@
+#1 Tickers symbol or company names might change so for comparing using ISIN would be a better option so that there is no mismatch in comparison and getting accurate results.
+    like TMPV and Tata Motors got diverged into two TMPC TMCV.
+
+    Enough data must be required for analysis (JIOFIN).
+
+#2 We must also consider other factors such as Market Cap, Liquidity, Trading Frequency and F&O avaialbility for getting listed on NIFTY50
+
