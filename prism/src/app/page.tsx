@@ -17,7 +17,7 @@ export default async function HomePage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <NavBar active="ratings" lastUpdated={updatedLabel} />
-      <div className="pl-[260px]">
+      <div className="pl-0 pt-14 lg:pl-[260px] lg:pt-0">
         <MainDashboard initialSnapshots={snapshots} initialDataset={dataset} />
       </div>
     </main>

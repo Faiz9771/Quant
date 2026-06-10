@@ -124,14 +124,14 @@ export function TodoView() {
 
   if (!hydrated) {
     return (
-      <div className="mx-auto max-w-[1440px] px-8 py-8">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-8">
         <div className="h-10 w-48 animate-pulse rounded-xl bg-muted" />
       </div>
     );
   }
 
   return (
-    <div className="mx-auto max-w-[1440px] px-6 py-6 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6 animate-fade-in-up">
       {/* Top bar */}
       <div className="mb-6 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3">

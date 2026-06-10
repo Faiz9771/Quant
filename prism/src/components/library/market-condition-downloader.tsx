@@ -85,7 +85,7 @@ function MarketConditionDialog({ onClose }: { onClose: () => void }) {
         />
       ) : (
         <form onSubmit={onCheck} className="flex flex-col gap-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Date">
               <input
                 type="date"
@@ -183,7 +183,7 @@ function ResultPanel({
         </span>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 sm:grid-cols-4">
         <Stat label="Weekly bar" value={snap.barDate} />
         <Stat label="Close" value={String(snap.close)} mono />
         <Stat

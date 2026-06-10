@@ -200,7 +200,7 @@ export function OfficeHome() {
   const todoCount = mounted ? todoListArr.length : 0;
 
   return (
-    <div className="mx-auto max-w-[1440px] px-8 py-8 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-8 animate-fade-in-up">
       <PageHeader
         eyebrow="Workspace"
         title="Office"

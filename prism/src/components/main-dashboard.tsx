@@ -237,7 +237,7 @@ export function MainDashboard({
   }
 
   return (
-    <div className="mx-auto max-w-[1440px] px-8 py-8 pr-8 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-8 pr-8 animate-fade-in-up">
       <PageHeader
         eyebrow="Snapshot"
         title="Marketsmith Ratings"

@@ -218,7 +218,7 @@ export function LiveValidationView({ initialDataset }: LiveValidationViewProps) 
 
   if (!dataset.exists) {
     return (
-      <div className="mx-auto max-w-[1440px] px-6 py-8 animate-fade-in-up">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8 animate-fade-in-up">
         <PageHeader
           eyebrow="Live"
           title="Live validation"
@@ -248,7 +248,7 @@ export function LiveValidationView({ initialDataset }: LiveValidationViewProps) 
     : "Unknown";
 
   return (
-    <div className="mx-auto max-w-[1440px] px-6 py-8 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8 animate-fade-in-up">
       <PageHeader
         eyebrow="Live"
         title="Live Validation"

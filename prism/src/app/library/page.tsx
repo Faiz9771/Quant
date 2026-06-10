@@ -16,8 +16,8 @@ export default function LibraryPage() {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <NavBar active="library" />
-      <div className="pl-[260px]">
-        <div className="mx-auto max-w-[1440px] px-8 py-10 animate-fade-in-up">
+      <div className="pl-0 pt-14 lg:pl-[260px] lg:pt-0">
+        <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-10 animate-fade-in-up">
           <PageHeader
             eyebrow="Data"
             title="Library"

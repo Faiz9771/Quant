@@ -105,7 +105,7 @@ export function CompareView({ snapshots }: CompareViewProps) {
   }, [filteredChanges, data]);
 
   return (
-    <div className="mx-auto max-w-[1440px] px-6 py-8 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-8 animate-fade-in-up">
       <PageHeader
         eyebrow="Diff"
         title="Compare snapshots"

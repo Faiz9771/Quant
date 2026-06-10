@@ -12,7 +12,7 @@ export default async function PdfPage({ params }: PageProps) {
   return (
     <main className="min-h-screen bg-background text-foreground">
       <NavBar active="office" />
-      <div className="pl-[260px]">
+      <div className="pl-0 pt-14 lg:pl-[260px] lg:pt-0">
         <PdfViewer docId={id} />
       </div>
     </main>

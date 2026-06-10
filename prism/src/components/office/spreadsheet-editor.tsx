@@ -45,7 +45,7 @@ export function SpreadsheetEditor({ docId }: Props) {
 
   if (!hydrated) {
     return (
-      <div className="mx-auto max-w-[1440px] px-8 py-8">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-8">
         <div className="h-10 w-48 animate-pulse rounded-xl bg-muted" />
       </div>
     );
@@ -53,7 +53,7 @@ export function SpreadsheetEditor({ docId }: Props) {
 
   if (!doc || doc.kind !== "spreadsheet") {
     return (
-      <div className="mx-auto max-w-[1440px] px-8 py-12 text-center">
+      <div className="mx-auto max-w-[1440px] px-4 sm:px-8 py-12 text-center">
         <h2 className="mb-2 text-xl font-semibold">Spreadsheet not found</h2>
         <p className="mb-6 text-[13.5px] text-muted-foreground">
           It may have been deleted, or the link is invalid.
@@ -247,7 +247,7 @@ export function SpreadsheetEditor({ docId }: Props) {
       : currentRaw;
 
   return (
-    <div className="mx-auto max-w-[1440px] px-6 py-6 animate-fade-in-up">
+    <div className="mx-auto max-w-[1440px] px-4 sm:px-6 py-6 animate-fade-in-up">
       {/* Top bar */}
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-3">
