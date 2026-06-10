@@ -1,0 +1,13 @@
+.git
+.gitignore
+.next
+node_modules
+npm-debug.log*
+.env*
+.prism-launcher.log
+last-prompt
+# Office SQLite + caches are mounted as a volume at runtime, not baked in.
+data
+# Build/editor cruft that bloats the context.
+*.tsbuildinfo
+**/.DS_Store

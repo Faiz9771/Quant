@@ -1,0 +1,407 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────
+   PRISM — Warm Dashboard Design System.
+   Inspired by: Zarss dashboard — beige, cream, olive, charcoal.
+   ───────────────────────────────────────────────────────────── */
+@layer base {
+  :root {
+    /* Surfaces — warm beige & cream, exactly matching Zarss reference. */
+    --background: 40 28% 91%;
+    --foreground: 30 10% 12%;
+
+    --surface: 40 32% 94%;
+    --surface-foreground: 30 10% 12%;
+
+    --card: 40 40% 98%;
+    --card-foreground: 30 10% 12%;
+
+    --popover: 40 45% 99%;
+    --popover-foreground: 30 10% 12%;
+
+    /* Primary — deep charcoal, matches reference sidebar / dark cta. */
+    --primary: 30 8% 14%;
+    --primary-foreground: 40 40% 98%;
+
+    --secondary: 38 22% 92%;
+    --secondary-foreground: 30 10% 18%;
+
+    --muted: 38 18% 91%;
+    --muted-foreground: 30 6% 44%;
+
+    --accent: 38 22% 89%;
+    --accent-foreground: 30 10% 12%;
+
+    /* Brand — refined heritage olive (think Barbour, Hermès sellier). */
+    --brand: 76 20% 36%;
+    --brand-foreground: 42 40% 97%;
+    --brand-soft: 72 22% 85%;
+    --brand-muted: 68 14% 91%;
+
+    /* Destructive — muted coral. */
+    --destructive: 0 62% 56%;
+    --destructive-foreground: 0 0% 100%;
+    --destructive-soft: 8 60% 93%;
+
+    /* Success — deeper forest green. */
+    --success: 145 48% 38%;
+    --success-foreground: 0 0% 100%;
+    --success-soft: 140 35% 90%;
+
+    /* Warning — butter-yellow pastel card (reference middle stat card). */
+    --warning: 42 85% 54%;
+    --warning-foreground: 30 60% 14%;
+    --warning-soft: 44 88% 80%;
+
+    /* Info — lavender pastel card (reference right/upgrade card). */
+    --info: 244 55% 68%;
+    --info-foreground: 0 0% 100%;
+    --info-soft: 248 62% 86%;
+
+    /* Borders — warm, subtle. */
+    --border: 36 16% 86%;
+    --border-soft: 36 18% 90%;
+    --input: 36 14% 82%;
+    --ring: 76 20% 36%;
+
+    /* Sidebar — dark charcoal to match reference exactly. */
+    --sidebar: 30 6% 13%;
+    --sidebar-foreground: 40 30% 96%;
+    --sidebar-muted: 30 4% 22%;
+
+    --radius: 0.875rem;
+
+    /* Elevation — layered shadows for premium depth. */
+    --shadow-1:
+      0 1px 2px -1px hsl(30 20% 12% / 0.06),
+      0 1px 3px -1px hsl(30 20% 12% / 0.04);
+    --shadow-2:
+      0 2px 4px -2px hsl(30 20% 12% / 0.07),
+      0 6px 12px -4px hsl(30 20% 12% / 0.06);
+    --shadow-3:
+      0 4px 8px -4px hsl(30 20% 12% / 0.08),
+      0 12px 28px -8px hsl(30 20% 12% / 0.10);
+    --shadow-4:
+      0 8px 14px -8px hsl(30 20% 12% / 0.12),
+      0 24px 48px -12px hsl(30 20% 12% / 0.16);
+
+    /* Motion tokens. */
+    --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+    --ease-emphasized: cubic-bezier(0.3, 0, 0.1, 1.05);
+    --ease-soft: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  * {
+    border-color: hsl(var(--border));
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    background: hsl(var(--background));
+    color: hsl(var(--foreground));
+    font-family:
+      "IBM Plex Sans",
+      "Avenir Next",
+      "Segoe UI",
+      sans-serif;
+    font-feature-settings: "cv11", "ss01", "ss03";
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    letter-spacing: -0.011em;
+  }
+
+  body {
+    min-height: 100vh;
+  }
+
+  ::selection {
+    background: hsl(var(--brand) / 0.24);
+    color: hsl(var(--foreground));
+  }
+
+  button {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: none;
+  }
+
+  /* Consistent focus ring across native interactive elements. */
+  button:focus-visible,
+  [role="button"]:focus-visible,
+  a:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  [tabindex]:focus-visible {
+    outline: none;
+    box-shadow:
+      0 0 0 2px hsl(var(--background)),
+      0 0 0 4px hsl(var(--brand) / 0.45);
+  }
+
+  input,
+  textarea {
+    transition:
+      background-color 160ms var(--ease-standard),
+      box-shadow 160ms var(--ease-standard),
+      border-color 160ms var(--ease-standard);
+  }
+
+  table {
+    font-feature-settings: "tnum", "cv11";
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    letter-spacing: -0.025em;
+    font-weight: 600;
+  }
+
+  code, kbd, pre {
+    font-family:
+      "JetBrains Mono",
+      ui-monospace,
+      "SF Mono",
+      "SFMono-Regular",
+      "Menlo",
+      monospace;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Scrollbars — thin, overlay-style.
+   ───────────────────────────────────────────────────────────── */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--muted-foreground) / 0.22) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: hsl(var(--muted-foreground) / 0.18);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+  transition: background-color 200ms var(--ease-standard);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: hsl(var(--muted-foreground) / 0.36);
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Utility helpers
+   ───────────────────────────────────────────────────────────── */
+@layer utilities {
+  .ease-spring {
+    transition-timing-function: cubic-bezier(0.22, 1.2, 0.36, 1);
+  }
+  .ease-out-soft {
+    transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .press {
+    transition-property: transform, background-color, color, border-color, box-shadow, opacity;
+    transition-duration: 200ms;
+    transition-timing-function: cubic-bezier(0.22, 1.2, 0.36, 1);
+    will-change: transform;
+  }
+  .press:active:not(:disabled) {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  /* Glass — warm tint. */
+  .glass {
+    background: hsl(var(--card) / 0.8);
+    backdrop-filter: blur(16px) saturate(1.4);
+    -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  }
+
+  .glass-strong {
+    background: hsl(var(--sidebar) / 0.9);
+    backdrop-filter: blur(20px) saturate(1.4);
+    -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  }
+
+  .glass-card {
+    background: hsl(var(--card) / 0.85);
+    backdrop-filter: blur(12px) saturate(1.3);
+    -webkit-backdrop-filter: blur(12px) saturate(1.3);
+  }
+
+  /* Surface gradient — warm inner glow. */
+  .surface-gradient {
+    background-color: hsl(var(--card));
+    background-image:
+      linear-gradient(
+        180deg,
+        hsl(40 30% 99% / 0.6) 0%,
+        hsl(40 20% 96% / 0) 50%
+      );
+  }
+
+  /* Hairline separator. */
+  .hairline {
+    background: linear-gradient(
+      90deg,
+      transparent,
+      hsl(var(--border)) 12%,
+      hsl(var(--border)) 88%,
+      transparent
+    );
+    height: 1px;
+  }
+
+  /* Focus glow ring. */
+  .glow-brand {
+    box-shadow:
+      0 0 0 1px hsl(var(--brand) / 0.35),
+      0 0 0 4px hsl(var(--brand) / 0.12);
+  }
+
+  /* Tabular numbers. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum";
+  }
+
+  /* Display number — tight, clean, big. */
+  .display-num {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum", "cv11";
+    letter-spacing: -0.03em;
+    line-height: 1;
+  }
+
+  /* Shimmer loading skeleton. */
+  .shimmer {
+    background: linear-gradient(
+      90deg,
+      hsl(var(--muted)) 0%,
+      hsl(var(--accent)) 50%,
+      hsl(var(--muted)) 100%
+    );
+    background-size: 200% 100%;
+    animation: shimmer 2s ease-in-out infinite;
+  }
+
+  /* Elevation utilities — layered, premium shadows.
+     Route through Tailwind's --tw-shadow so they compose with ring-*. */
+  .shadow-e1 {
+    --tw-shadow: var(--shadow-1);
+    box-shadow:
+      var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000),
+      var(--tw-shadow);
+  }
+  .shadow-e2 {
+    --tw-shadow: var(--shadow-2);
+    box-shadow:
+      var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000),
+      var(--tw-shadow);
+  }
+  .shadow-e3 {
+    --tw-shadow: var(--shadow-3);
+    box-shadow:
+      var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000),
+      var(--tw-shadow);
+  }
+  .shadow-e4 {
+    --tw-shadow: var(--shadow-4);
+    box-shadow:
+      var(--tw-ring-offset-shadow, 0 0 #0000),
+      var(--tw-ring-shadow, 0 0 #0000),
+      var(--tw-shadow);
+  }
+
+  /* Subtle top-edge highlight via pseudo-element (avoids clobbering ring/shadow). */
+  .edge-highlight {
+    position: relative;
+  }
+  .edge-highlight::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 0 hsl(40 30% 99% / 0.6);
+  }
+  .edge-highlight-dark {
+    position: relative;
+  }
+  .edge-highlight-dark::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    pointer-events: none;
+    box-shadow: inset 0 1px 0 0 hsl(0 0% 100% / 0.08);
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────
+   Keyframes
+   ───────────────────────────────────────────────────────────── */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+@keyframes prism-facet {
+  0%, 100% { opacity: 0.45; transform: scale(1); }
+  45%      { opacity: 1;    transform: scale(1.04); }
+  60%      { opacity: 1;    transform: scale(1.04); }
+}
+
+@keyframes prism-trace {
+  0%   { stroke-dashoffset: 0;   opacity: 0.35; }
+  50%  {                         opacity: 1; }
+  100% { stroke-dashoffset: -72; opacity: 0.35; }
+}
+
+@keyframes row-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes flash-up {
+  0%   { background-color: hsl(145 48% 45% / 0); }
+  15%  { background-color: hsl(145 48% 45% / 0.22); }
+  100% { background-color: hsl(145 48% 45% / 0); }
+}
+
+@keyframes flash-down {
+  0%   { background-color: hsl(0 62% 56% / 0); }
+  15%  { background-color: hsl(0 62% 56% / 0.22); }
+  100% { background-color: hsl(0 62% 56% / 0); }
+}
+
+@layer utilities {
+  .animate-row-in {
+    animation: row-in 320ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+  .flash-up {
+    animation: flash-up 950ms ease-out;
+  }
+  .flash-down {
+    animation: flash-down 950ms ease-out;
+  }
+}

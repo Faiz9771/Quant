@@ -1,0 +1,26 @@
+services:
+  prism:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      # Single source of truth for the dashboard data AND the scraper output.
+      DASH_DATA_DIR: /app/external/Dash
+      # Use the Python venv baked into the image (has playwright/pandas/yfinance).
+      PRISM_PYTHON: /opt/venv/bin/python
+      PRISM_FAN_BREAKOUT_PYTHON: /opt/venv/bin/python
+      PRISM_SCRAPER_RUNNER: /app/external/Dash/run_and_archive.py
+      PRISM_FAN_BREAKOUT_SCRIPT: /app/external/Data-Fetch/shivam.py
+    volumes:
+      # Persisted Office workspace (SQLite office.db lives here).
+      - ./data:/app/data
+      # Dash MUST be read-write: the scraper writes latest.parquet, history/,
+      # and marketsmith_scores_complete.csv back into this folder.
+      - ../Dash:/app/external/Dash
+      # Data-Fetch read-write: the breakout tool writes breakout_results.csv.
+      - ../Data-Fetch:/app/external/Data-Fetch
+    restart: unless-stopped
