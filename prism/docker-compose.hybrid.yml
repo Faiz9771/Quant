@@ -1,0 +1,23 @@
+# Hybrid deployment: pulls the prebuilt SLIM image from GHCR and runs only the
+# Node server (dashboards + Office). No build happens on the host, so this runs
+# on a tiny VM. The Playwright scraper / breakout stay on your Mac; their output
+# reaches the dashboard via the Dash data rsync'd into ../Dash.
+#
+# Usage on the VM:  docker compose -f docker-compose.hybrid.yml up -d
+services:
+  prism:
+    image: ghcr.io/faiz9771/prism:slim
+    pull_policy: always
+    ports:
+      - "3000:3000"
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DASH_DATA_DIR: /app/external/Dash
+    volumes:
+      # Persisted Office workspace (SQLite office.db).
+      - ./data:/app/data
+      # Dashboard data (latest.parquet, history/, live_validation.csv, ...).
+      # Read-only is fine here — nothing in the cloud writes to it in hybrid mode.
+      - ../Dash:/app/external/Dash:ro
+    restart: unless-stopped

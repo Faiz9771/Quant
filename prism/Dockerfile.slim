@@ -1,0 +1,41 @@
+# syntax=docker/dockerfile:1
+
+# ──────────────────────────────────────────────────────────────────────────
+# Prism SLIM image — Node standalone server only (no Python, no Chromium).
+#
+# Used for the "hybrid" deployment on a low-RAM box (e.g. the Oracle E2.1.Micro):
+# the dashboards + Office workspace run in the cloud, while the Playwright
+# scraper and breakout tools stay on your Mac and sync their output up. The
+# /scraper and breakout buttons simply error if clicked here — by design.
+#
+# Built by GitHub Actions (.github/workflows/docker.yml) for linux/amd64 and
+# pushed to GHCR, so the tiny VM only ever PULLS — it never runs `next build`.
+# ──────────────────────────────────────────────────────────────────────────
+
+FROM node:22-bookworm-slim AS deps
+WORKDIR /app
+# better-sqlite3 is native; build tools as a fallback if no prebuilt matches.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      python3 make g++ ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+COPY package.json package-lock.json ./
+RUN npm ci
+
+FROM node:22-bookworm-slim AS builder
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+RUN npm run build
+
+FROM node:22-bookworm-slim AS runner
+WORKDIR /app
+ENV NODE_ENV=production \
+    NEXT_TELEMETRY_DISABLED=1 \
+    PORT=3000
+RUN mkdir -p /app/data /app/external
+COPY --from=builder /app/public ./public
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
+EXPOSE 3000
+CMD ["node", "server.js"]
