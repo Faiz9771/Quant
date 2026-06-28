@@ -1,0 +1,24 @@
+# Hybrid deployment: the Oracle VM PULLS the prebuilt image from GHCR (built by
+# .github/workflows/m71.yml for linux/amd64) and runs it — no build on the box.
+# Runs beside Prism (Prism owns 3000; M7.1 owns 5050).
+#
+#   On the VM:  docker compose -f docker-compose.hybrid.yml up -d
+#   then open:  http://<vm-ip>:5050
+services:
+  m71:
+    image: ghcr.io/faiz9771/m71:latest
+    pull_policy: always
+    ports:
+      - "5050:5050"
+    environment:
+      PORT: 5050
+      M71_DATA_DIR: /app/data
+    volumes:
+      - m71_scan_cache:/app/.scan_cache
+      - m71_fii_cache:/app/.fii_cache
+      - ./data:/app/data
+    restart: unless-stopped
+
+volumes:
+  m71_scan_cache:
+  m71_fii_cache:

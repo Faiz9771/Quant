@@ -1,0 +1,306 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>M7.1-Long · Integrated Strategy Dashboard</title>
+<style>
+:root{--ink:#10221c;--paper:#f3efe6;--panel:#fbf9f3;--line:#d8d2c2;--green:#1f7a52;
+--green-d:#0f5236;--red:#b03a2e;--amber:#c08a1e;--mid:#7a8f86;--gold:#9a7b2e;--lock:#4a5d8a;--blue:#33597d}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;line-height:1.5;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1140px;margin:0 auto;padding:26px 20px 90px}
+.eyebrow{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--green-d);margin:0 0 6px}
+h1{font-size:30px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:#5a6b63;font-size:15px;margin:0 0 18px;max-width:70ch}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:20px;flex-wrap:wrap}
+.tab{padding:9px 15px;font-size:13.5px;cursor:pointer;border:1px solid transparent;border-bottom:none;color:var(--mid);border-radius:5px 5px 0 0}
+.tab.on{background:var(--panel);border-color:var(--line);color:var(--green-d);font-weight:600;margin-bottom:-1px}
+.view{display:none}.view.on{display:block}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:4px;padding:18px 20px;margin-bottom:16px}
+.ph{font-family:"SF Mono",monospace;font-size:11px;letter-spacing:.2em;text-transform:uppercase;color:#8a9189;margin:0 0 14px;display:flex;justify-content:space-between;align-items:baseline}
+.ph b{color:var(--green-d);font-weight:600;letter-spacing:0}
+.ctl-row{display:grid;grid-template-columns:180px 1fr 96px;gap:14px;align-items:center;margin-bottom:14px}
+.ctl-row label{font-size:14px}.ctl-row label small{display:block;color:#8a9189;font-size:11.5px}
+input[type=range]{width:100%;accent-color:var(--green-d)}
+.val{font-family:"SF Mono",monospace;font-size:15px;text-align:right;background:#fff;border:1px solid var(--line);border-radius:4px;padding:5px 8px}
+.seg{display:flex;border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.seg button{flex:1;background:#fff;border:none;padding:7px 4px;font:inherit;font-size:13px;cursor:pointer;color:var(--mid);border-right:1px solid var(--line)}
+.seg button:last-child{border-right:none}.seg button.on{background:var(--green-d);color:#fff}
+.slots{display:flex;gap:7px;margin:6px 0;flex-wrap:wrap}
+.slot{flex:1;min-width:72px;background:#fff;border:1px solid var(--line);border-radius:4px;padding:8px;text-align:center}
+.slot .sn{font-family:"SF Mono",monospace;font-size:9px;letter-spacing:.1em;color:#8a9189;text-transform:uppercase}
+.slot .sv{font-size:15px;font-weight:600;margin-top:2px}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:4px;overflow:hidden}
+.stat{background:var(--panel);padding:14px 13px}
+.stat .k{font-family:"SF Mono",monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#8a9189}
+.stat .v{font-size:23px;font-weight:600;margin-top:4px;letter-spacing:-.01em}
+.stat .d{font-size:11px;color:#6a766e;margin-top:1px}
+.pos{color:var(--green-d)}.neg{color:var(--red)}
+canvas{width:100%;height:auto;display:block}
+table{width:100%;border-collapse:collapse;font-size:12.5px}
+th,td{text-align:right;padding:5px 8px;border-bottom:1px solid #e7e2d5}
+th{font-family:"SF Mono",monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#8a9189;font-weight:500}
+td.l,th.l{text-align:left}
+.tag{font-family:"SF Mono",monospace;font-size:9.5px;padding:1px 6px;border-radius:3px}
+.tag.W{background:#e2f0e6;color:var(--green-d)}.tag.L{background:#f6e3df;color:var(--red)}.tag.B{background:#e6eaf5;color:var(--lock)}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:#5a6b63;margin-top:10px}
+.legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:5px}
+.note{font-size:13px;color:#5a6b63;border-left:2px solid var(--gold);padding:3px 0 3px 14px;margin:13px 0 0}
+.scroll{max-height:340px;overflow:auto}
+.togs{display:grid;grid-template-columns:1fr;gap:9px}
+.tog{display:flex;gap:11px;align-items:flex-start;cursor:pointer;padding:11px 13px;border:1px solid var(--line);border-radius:4px;background:#fff;transition:.15s}
+.tog.on{background:#f0f6f1;border-color:var(--green)}.tog input{margin-top:3px;accent-color:var(--green-d);width:16px;height:16px}
+.tog b{font-size:14px}.tog small{display:block;color:#6a766e;font-size:12px;margin-top:2px;line-height:1.45}
+.cite{font-family:"SF Mono",monospace;font-size:10px;color:var(--gold);margin-top:4px}
+.book{border:1px solid var(--line);border-radius:4px;padding:14px 16px;margin-bottom:12px;background:#fff}
+.book h4{margin:0 0 4px;font-size:15px}.book .src{font-family:"SF Mono",monospace;font-size:10.5px;color:var(--blue);text-transform:uppercase;letter-spacing:.08em}
+.book p{margin:7px 0 0;font-size:13.5px;color:#3f4f48}
+.book .map{margin-top:8px;font-size:12.5px;color:var(--green-d);border-top:1px dashed var(--line);padding-top:7px}
+.drop{border:2px dashed var(--line);border-radius:6px;padding:26px;text-align:center;color:var(--mid);cursor:pointer;background:#fff}
+.drop.hot{border-color:var(--green);background:#f0f6f1}
+.findings{display:grid;gap:10px}
+.finding{border:1px solid var(--line);border-left:3px solid var(--amber);border-radius:4px;padding:12px 15px;background:#fff}
+.finding.crit{border-left-color:var(--red)}.finding.ok{border-left-color:var(--green)}
+.finding b{font-size:14px}.finding p{margin:5px 0 0;font-size:13px;color:#4a5a52}
+.pill{display:inline-block;font-family:"SF Mono",monospace;font-size:9.5px;padding:1px 7px;border-radius:9px;background:#eee9da;color:var(--gold);margin-left:6px;text-transform:uppercase;letter-spacing:.08em}
+@media(max-width:680px){.stats{grid-template-columns:1fr 1fr}.ctl-row{grid-template-columns:1fr}h1{font-size:23px}}
+</style></head><body><div class="wrap">
+<p class="eyebrow">Model M7.1 · Long · Integrated</p>
+<h1>Strategy simulation &amp; loose-end dashboard</h1>
+<p class="sub">Your 36 tested trades and the scanner's output in one place — a live locked-capital
+simulator, book-grounded fixes you can toggle, your reference-material digest, and a diagnostics
+panel that flags loose ends. Tweak the controls and watch every number recompute.</p>
+
+<div class="tabs">
+  <div class="tab on" data-v="sim">Simulator</div>
+  <div class="tab" data-v="fixes">Loose-end fixes</div>
+  <div class="tab" data-v="scan">Scanner output</div>
+  <div class="tab" data-v="books">Reference digest</div>
+  <div class="tab" data-v="diag">Diagnostics</div>
+</div>
+
+<!-- ============ SIM ============ -->
+<div class="view on" id="v-sim">
+  <div class="panel">
+    <p class="ph"><span>Capital controller</span><span id="deployTag"></span></p>
+    <div class="ctl-row"><label>Data source<small>which trade log to simulate</small></label>
+      <div class="seg" id="dataSrc"><button data-s="tested" class="on">Your 36 tested trades</button><button data-s="scan">Uploaded scanner output</button></div><div></div></div>
+    <div class="ctl-row"><label>Starting capital</label>
+      <input id="cap" type="range" min="50000" max="5000000" step="25000" value="1000000"><div class="val" id="capV"></div></div>
+    <div class="ctl-row"><label>Number of slots<small>max concurrent positions</small></label>
+      <input id="slots" type="range" min="1" max="8" step="1" value="5"><div class="val" id="slotsV"></div></div>
+    <div class="ctl-row"><label>Sizing method</label>
+      <div class="seg" id="method"><button data-m="equal" class="on">Equal split</button><button data-m="risk">Risk % (Tharp)</button></div><div></div></div>
+    <div class="ctl-row" id="riskRow" style="display:none"><label>Risk per trade<small>% equity to a 7.5% stop</small></label>
+      <input id="risk" type="range" min="0.5" max="3" step="0.25" value="1"><div class="val" id="riskV"></div></div>
+    <p class="ph" style="margin:14px 0 6px"><span>Slot sizing at entry</span></p>
+    <div class="slots" id="slotView"></div>
+    <p class="note" id="advice"></p>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div class="panel" style="margin-top:16px">
+    <p class="ph"><span>Equity curve · locked capital until each exit</span><span id="curveTag"></span></p>
+    <canvas id="curve" width="1040" height="300"></canvas>
+    <div class="legend"><span><i style="background:#b6ad97"></i>Baseline (1 slot, all-in)</span>
+      <span><i style="background:#1f7a52"></i>Current settings</span><span><i style="background:#b03a2e"></i>Max drawdown</span></div>
+  </div>
+  <div class="panel"><p class="ph"><span>Trade ledger</span><span id="ledgerTag"></span></p>
+    <div class="scroll"><table id="ledger"><thead><tr><th class="l">Ticker</th><th class="l">Seg</th><th>Entry</th><th>Exit</th><th>Status</th><th>P/L%</th><th>Locked</th><th>Equity</th></tr></thead><tbody></tbody></table></div>
+  </div>
+</div>
+
+<!-- ============ FIXES ============ -->
+<div class="view" id="v-fixes">
+  <div class="panel"><p class="ph"><span>Book-grounded fixes — toggle &amp; re-simulate</span></p>
+  <div class="togs">
+    <label class="tog" data-fix="atr"><input type="checkbox"><span><b>ATR-based stop</b> — rescue the 7-day whipsaws
+      <small>5 losers stopped out in exactly 7 days at a fixed % buffer inside normal noise. A volatility-aware stop holds through the shake-out. Models whip-losses converting to modest gains.</small>
+      <span class="cite">O'Neil: cut losses 7–8%, but only below a real buy point · Beyond Tech Analysis: exits via trailing/ATR not fixed ticks</span></span></label>
+    <label class="tog" data-fix="midcap"><input type="checkbox"><span><b>Half-size midcaps</b> — fund the stronger segment
+      <small>Midcap buys win 54% vs largecap 74%. Halve midcap size so the weaker segment can't drag the book.</small>
+      <span class="cite">Tharp: position sizing ≈ how you meet objectives · Schwager: bet smaller where edge is thinner</span></span></label>
+    <label class="tog" data-fix="streak"><input type="checkbox"><span><b>Losing-streak de-risking</b> — cut size after consecutive losses
+      <small>After 2+ straight losses, reduce next position to 50% until a win resets it. Smooths the 2018 drawdown cluster.</small>
+      <span class="cite">Schwager (Market Wizards): "When I am trading poorly, I keep reducing my position size."</span></span></label>
+    <label class="tog" data-fix="pyramid"><input type="checkbox"><span><b>Pyramid winners</b> — add to strength
+      <small>Add a half-unit to trades up >8% that are still open, funded from free cash. Concentrates capital in what's working.</small>
+      <span class="cite">O'Neil / Livermore: pyramid into winners, not losers</span></span></label>
+    <label class="tog" data-fix="fnrecover"><input type="checkbox"><span><b>False-negative recovery</b> — the real upside
+      <small>Your dominant error is missed trades (40 FN vs 12 FP). Models recovering a share of skipped-but-valid signals via the Step 11-12 recheck queue.</small>
+      <span class="cite">Encyclopedia of Trading Strategies: a system's expectancy is wasted if valid signals aren't taken</span></span></label>
+  </div>
+  <div class="ctl-row" id="fnRow" style="display:none;margin-top:12px"><label>FN recovery rate<small>% of missed winners recaptured</small></label>
+    <input id="fnrate" type="range" min="0" max="100" step="10" value="40"><div class="val" id="fnrateV"></div></div>
+  <p class="note">Each fix is a modeled approximation so you can see direction and magnitude, not a precise forecast. Stack them to see combined effect on the Simulator tab's curve.</p>
+  </div>
+</div>
+
+<!-- ============ SCAN ============ -->
+<div class="view" id="v-scan">
+  <div class="panel"><p class="ph"><span>Load scanner output</span></p>
+    <p class="sub" style="margin-bottom:12px">Run <code>python scan.py --start-year 2021 --end-year 2023</code>, then drop the
+    <code>simulation_*.csv</code> here. The Simulator tab's "Uploaded scanner output" source will then run on these trades.</p>
+    <div class="drop" id="drop">Drop <b>simulation_&lt;span&gt;.csv</b> here, or click to choose</div>
+    <input type="file" id="file" accept=".csv" style="display:none">
+    <div id="scanInfo" style="margin-top:14px"></div>
+  </div>
+</div>
+
+<!-- ============ BOOKS ============ -->
+<div class="view" id="v-books">
+  <div class="panel"><p class="ph"><span>Reference digest — what the books say, mapped to your system</span></p>
+  <div id="bookList"></div>
+  <p class="note">Pulled from the uploaded books. Each card maps a principle to a concrete lever in this dashboard.</p>
+  </div>
+</div>
+
+<!-- ============ DIAG ============ -->
+<div class="view" id="v-diag">
+  <div class="panel"><p class="ph"><span>Loose-end diagnostics — your tested data</span></p>
+    <canvas id="bars" width="1040" height="170"></canvas>
+    <div class="findings" id="findings" style="margin-top:16px"></div>
+  </div>
+</div>
+
+<script>
+const TESTED = [{"id":6,"ticker":"INDIANB","mkt":"MIDCAP","entry":"2017-11-17","exit":"2017-12-08","pct":-7.405,"days":21,"whip":false},{"id":8,"ticker":"ABB","mkt":"LARGECAP","entry":"2018-01-19","exit":"2018-02-02","pct":10.301,"days":14,"whip":false},{"id":9,"ticker":"JINDALSTEL","mkt":"LARGECAP","entry":"2018-01-26","exit":"2018-02-02","pct":-6.495,"days":7,"whip":true},{"id":10,"ticker":"APLAPOLLO","mkt":"MIDCAP","entry":"2018-01-26","exit":"2018-02-02","pct":-5.884,"days":7,"whip":true},{"id":14,"ticker":"INDUSINDBK","mkt":"MIDCAP","entry":"2018-08-03","exit":"2018-08-31","pct":-5.747,"days":28,"whip":false},{"id":15,"ticker":"CIPLA","mkt":"LARGECAP","entry":"2018-08-31","exit":"2018-10-26","pct":-7.876,"days":56,"whip":false},{"id":16,"ticker":"BIOCON","mkt":"MIDCAP","entry":"2018-09-28","exit":"2018-10-05","pct":-5.982,"days":7,"whip":true},{"id":17,"ticker":"BAJAJFINSV","mkt":"LARGECAP","entry":"2019-03-15","exit":"2019-05-02","pct":10.051,"days":48,"whip":false},{"id":18,"ticker":"AXISBANK","mkt":"LARGECAP","entry":"2019-05-31","exit":"2019-07-19","pct":-7.213,"days":49,"whip":false},{"id":22,"ticker":"BAJAJFINSV","mkt":"LARGECAP","entry":"2020-02-07","exit":"2020-03-07","pct":-8.555,"days":29,"whip":false},{"id":26,"ticker":"APOLLOHOSP","mkt":"LARGECAP","entry":"2020-09-18","exit":"2020-10-09","pct":24.537,"days":21,"whip":false},{"id":27,"ticker":"WIPRO","mkt":"LARGECAP","entry":"2020-09-18","exit":"2020-10-09","pct":8.689,"days":21,"whip":false},{"id":30,"ticker":"ULTRACEMCO","mkt":"LARGECAP","entry":"2020-11-13","exit":"2020-12-18","pct":6.128,"days":35,"whip":false},{"id":31,"ticker":"CHOLAFIN","mkt":"LARGECAP","entry":"2020-11-27","exit":"2021-01-15","pct":16.028,"days":49,"whip":false},{"id":35,"ticker":"AUBANK","mkt":"MIDCAP","entry":"2021-02-05","exit":"2021-02-12","pct":9.991,"days":7,"whip":false},{"id":37,"ticker":"WIPRO","mkt":"LARGECAP","entry":"2021-04-23","exit":"2021-05-28","pct":13.244,"days":35,"whip":false},{"id":41,"ticker":"ABB","mkt":"LARGECAP","entry":"2021-06-04","exit":"2021-06-25","pct":12.093,"days":21,"whip":false},{"id":45,"ticker":"AMBUJACEM","mkt":"LARGECAP","entry":"2021-09-10","exit":"2021-10-22","pct":-11.03,"days":42,"whip":false},{"id":47,"ticker":"ITC","mkt":"LARGECAP","entry":"2022-07-08","exit":"2022-09-02","pct":10.27,"days":56,"whip":false},{"id":48,"ticker":"BEL","mkt":"LARGECAP","entry":"2022-07-22","exit":"2022-08-26","pct":14.45,"days":35,"whip":false},{"id":49,"ticker":"ASTRAL","mkt":"MIDCAP","entry":"2022-09-09","exit":"2022-09-16","pct":-6.434,"days":7,"whip":true},{"id":51,"ticker":"RVNL","mkt":"MIDCAP","entry":"2022-11-04","exit":"2022-11-11","pct":15.092,"days":7,"whip":false},{"id":52,"ticker":"AMBUJACEM","mkt":"LARGECAP","entry":"2022-12-09","exit":"2022-12-16","pct":-9.639,"days":7,"whip":true},{"id":53,"ticker":"CHOLAFIN","mkt":"LARGECAP","entry":"2023-04-07","exit":"2023-05-05","pct":17.881,"days":28,"whip":false},{"id":54,"ticker":"DLF","mkt":"LARGECAP","entry":"2023-04-14","exit":"2023-05-12","pct":6.596,"days":28,"whip":false},{"id":59,"ticker":"HDFCAMC","mkt":"LARGECAP","entry":"2023-07-21","exit":"2023-09-15","pct":10.219,"days":56,"whip":false},{"id":61,"ticker":"GAIL","mkt":"LARGECAP","entry":"2023-09-08","exit":"2023-10-20","pct":3.436,"days":42,"whip":false},{"id":63,"ticker":"MOTILALOFS","mkt":"MIDCAP","entry":"2023-11-03","exit":"2023-11-17","pct":14.847,"days":14,"whip":false},{"id":67,"ticker":"BHEL","mkt":"MIDCAP","entry":"2023-11-24","exit":"2023-12-01","pct":14.943,"days":7,"whip":false},{"id":68,"ticker":"BPCL","mkt":"LARGECAP","entry":"2023-12-01","exit":"2024-01-12","pct":6.005,"days":42,"whip":false},{"id":75,"ticker":"HUDCO","mkt":"LARGECAP","entry":"2023-12-29","exit":"2024-01-19","pct":15.125,"days":21,"whip":false},{"id":77,"ticker":"OIL","mkt":"MIDCAP","entry":"2024-01-19","exit":"2024-02-09","pct":12.031,"days":21,"whip":false},{"id":84,"ticker":"HUDCO","mkt":"LARGECAP","entry":"2024-04-26","exit":"2024-05-24","pct":13.985,"days":28,"whip":false},{"id":88,"ticker":"LUPIN","mkt":"MIDCAP","entry":"2024-07-05","exit":"2024-08-02","pct":11.287,"days":28,"whip":false},{"id":98,"ticker":"AUBANK","mkt":"MIDCAP","entry":"2025-07-05","exit":"2025-07-25","pct":-5.43,"days":20,"whip":false},{"id":99,"ticker":"ASHOKLEY","mkt":"MIDCAP","entry":"2025-11-28","exit":"2025-12-26","pct":10.675,"days":28,"whip":false}];
+TESTED.forEach(t=>{t.e=new Date(t.entry);t.x=new Date(t.exit)});
+let SCAN=null;
+const cfg={src:'tested',cap:1000000,slots:5,method:'equal',risk:1,atr:false,midcap:false,streak:false,pyramid:false,fnrecover:false,fnrate:40};
+
+function activeTrades(){return cfg.src==='scan'&&SCAN?SCAN:TESTED}
+
+function run(c,trades){
+  trades=[...trades].sort((a,b)=>a.e-b.e);
+  let cash=c.cap,realized=c.cap,open=[],held=new Set(),peak=c.cap,dd=0,lossRun=0;
+  const led=[],pts=[c.cap];
+  const fnWinners=[];
+  for(const tr of trades){
+    const still=[];
+    for(const p of open){if(p.x<=tr.e){cash+=p.locked+p.pnl;realized+=p.pnl;held.delete(p.sym)}else still.push(p)}
+    open=still;
+    if(open.length>=c.slots){led.push({...tr,status:'B',locked:0,eq:realized});continue}
+    if(held.has(tr.ticker)){led.push({...tr,status:'B',locked:0,eq:realized});continue}
+    let pct=tr.pct;
+    if(c.atr&&tr.whip)pct=Math.abs(tr.pct)*0.6;
+    const basis=realized+open.reduce((s,p)=>s+p.locked,0);
+    let want=c.method==='equal'?basis/c.slots:basis*(c.risk/100)/0.075;
+    if(c.midcap&&tr.mkt==='MIDCAP')want*=0.5;
+    if(c.streak&&lossRun>=2)want*=0.5;
+    if(c.pyramid&&pct>8)want*=1.5;
+    let locked=Math.min(want,cash);
+    if(locked<=0){led.push({...tr,status:'B',locked:0,eq:realized});continue}
+    cash-=locked;const pnl=locked*pct/100;
+    open.push({sym:tr.ticker,x:tr.x,locked,pnl});held.add(tr.ticker);
+    lossRun=pct>0?0:lossRun+1;
+    led.push({...tr,status:pct>0?'W':'L',plShown:pct,locked,eq:realized});
+    const mtm=cash+open.reduce((s,p)=>s+p.locked+p.pnl,0);peak=Math.max(peak,mtm);dd=Math.min(dd,(mtm-peak)/peak);pts.push(mtm);
+  }
+  for(const p of open){cash+=p.locked+p.pnl;realized+=p.pnl}
+  // FN recovery: add modeled recovered winners at trend-avg on a starter slice
+  if(c.fnrecover){
+    const recov=Math.round(6*c.fnrate/100),avg=11.0,slice=0.35;
+    for(let k=0;k<recov;k++){const add=cash*slice*avg/100;cash+=add;led.push({ticker:'RECHECK#'+(k+1),mkt:'—',entry:'recovered',status:'W',plShown:avg,locked:cash*slice,eq:cash});pts.push(cash)}
+  }
+  peak=Math.max(peak,cash);dd=Math.min(dd,(cash-peak)/peak);pts.push(cash);
+  const taken=led.filter(l=>l.status==='W'||l.status==='L');
+  const wn=taken.filter(l=>l.plShown>0).length,ln=taken.filter(l=>l.plShown<=0).length;
+  const yrs=8.1;const cagr=(Math.pow(cash/c.cap,1/yrs)-1)*100;
+  return{end:cash,dd:dd*100,cagr,wn,ln,blocked:led.filter(l=>l.status==='B').length,led,curve:pts};
+}
+const baseline=run({...cfg,slots:1,method:'equal',atr:false,midcap:false,streak:false,pyramid:false,fnrecover:false},TESTED);
+
+function inr(n){n=Math.round(n);const s=Math.abs(n).toString();let l3=s.slice(-3),r=s.slice(0,-3);if(r)l3=','+l3;r=r.replace(/\B(?=(\d{2})+(?!\d))/g,',');return(n<0?'-\u20B9':'\u20B9')+r+l3}
+
+function render(){
+  document.getElementById('capV').textContent=inr(cfg.cap);
+  document.getElementById('slotsV').textContent=cfg.slots;
+  document.getElementById('riskV').textContent=cfg.risk.toFixed(2)+'%';
+  document.getElementById('riskRow').style.display=cfg.method==='risk'?'grid':'none';
+  document.getElementById('fnRow').style.display=cfg.fnrecover?'grid':'none';
+  document.getElementById('fnrateV').textContent=cfg.fnrate+'%';
+  const trades=activeTrades();
+  const r=run(cfg,trades);
+  const baseScaled=baseline.curve.map(v=>v/1000000*cfg.cap);
+  const sv=document.getElementById('slotView');sv.innerHTML='';
+  const per=cfg.method==='equal'?cfg.cap/cfg.slots:cfg.cap*(cfg.risk/100)/0.075;
+  for(let i=0;i<cfg.slots;i++){const d=document.createElement('div');d.className='slot';d.innerHTML='<div class="sn">Slot '+(i+1)+'</div><div class="sv">'+inr(Math.min(per,cfg.cap/cfg.slots))+'</div>';sv.appendChild(d)}
+  document.getElementById('deployTag').textContent=(cfg.src==='scan'?'scanner · ':'tested · ')+cfg.slots+' slots';
+  const baseEnd=baseScaled[baseScaled.length-1];
+  const st=[['Final equity',inr(r.end),(r.end>=baseEnd?'+':'')+inr(r.end-baseEnd)+' vs base',r.end>=baseEnd],
+    ['CAGR',r.cagr.toFixed(1)+'%','compounded',r.cagr>=baseline.cagr],
+    ['Max drawdown',r.dd.toFixed(1)+'%','peak-to-trough',r.dd>=baseline.dd],
+    ['Win / blocked',r.wn+'W·'+r.ln+'L',r.blocked+' blocked',r.blocked===0]];
+  document.getElementById('stats').innerHTML=st.map(s=>'<div class="stat"><div class="k">'+s[0]+'</div><div class="v '+(s[3]?'pos':'neg')+'">'+s[1]+'</div><div class="d">'+s[2]+'</div></div>').join('');
+  document.getElementById('curveTag').textContent=inr(r.end)+' final';
+  document.getElementById('ledgerTag').textContent=r.led.length+' rows';
+  drawCurve(baseScaled,r);drawLedger(r);
+  const a=document.getElementById('advice');
+  const on=['atr','midcap','streak','pyramid','fnrecover'].filter(k=>cfg[k]);
+  if(cfg.slots===1&&!on.length)a.textContent='Baseline: 1 slot all-in. Deep drawdown, trades blocked by locked capital. Widen slots or add fixes.';
+  else if(cfg.fnrecover)a.textContent='False-negative recovery is your biggest lever — missed valid signals, not bad ones, are the main leak.';
+  else if(on.length)a.textContent=on.length+' fix(es) active. Compare final equity + drawdown vs the dashed baseline.';
+  else a.textContent='No fixes active. Open the Loose-end fixes tab to layer book-grounded adjustments.';
+}
+function drawCurve(base,r){const c=document.getElementById('curve'),x=c.getContext('2d'),W=c.width,H=c.height,pad=64;x.clearRect(0,0,W,H);
+  const all=base.concat(r.curve);const max=Math.max.apply(null,all)*1.05,min=Math.min.apply(null,all.concat([cfg.cap]))*0.9;
+  const px=(i,a)=>pad+(i/(a.length-1))*(W-pad-14),py=v=>H-26-((v-min)/(max-min))*(H-48);
+  x.strokeStyle='#e7e2d5';x.font='10px monospace';x.fillStyle='#9aa39b';
+  for(let g=0;g<=4;g++){const v=min+(max-min)*g/4,y=py(v);x.beginPath();x.moveTo(pad,y);x.lineTo(W-14,y);x.stroke();x.fillText(inr(v),4,y+3)}
+  function line(a,col,w,dash){x.setLineDash(dash||[]);x.beginPath();a.forEach((v,i)=>{const X=px(i,a),Y=py(v);i?x.lineTo(X,Y):x.moveTo(X,Y)});x.strokeStyle=col;x.lineWidth=w;x.stroke();x.setLineDash([])}
+  line(base,'#b6ad97',1.6,[4,3]);line(r.curve,'#1f7a52',2.4);
+  let pk=r.curve[0],di=0,dv=0;r.curve.forEach((v,i)=>{pk=Math.max(pk,v);const d=(v-pk)/pk;if(d<dv){dv=d;di=i}});
+  const X=px(di,r.curve),Y=py(r.curve[di]);x.fillStyle='#b03a2e';x.beginPath();x.arc(X,Y,4,0,7);x.fill()}
+function drawLedger(r){document.querySelector('#ledger tbody').innerHTML=r.led.map(t=>{const cls=t.status,tag=t.status==='B'?'BLOCKED':(t.status==='W'?'WIN':'LOSS');const pl=t.status==='B'?'\u2014':((t.plShown>=0?'+':'')+t.plShown.toFixed(1)+'%');return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+(t.mkt==='LARGECAP'?'LC':t.mkt==='MIDCAP'?'MC':'\u2014')+'</td><td>'+(t.entry||'')+'</td><td>'+(t.exit||'')+'</td><td><span class="tag '+cls+'">'+tag+'</span></td><td class="'+(t.plShown>=0?'pos':'neg')+'">'+pl+'</td><td>'+(t.locked?inr(t.locked):'\u2014')+'</td><td>'+inr(t.eq)+'</td></tr>'}).join('')}
+
+// books
+const BOOKS=[
+ {t:"Expectancy is the engine",s:"Van Tharp · Trade Your Way to Financial Freedom",p:"Expectancy is the net you can expect per trade over many trades; if total wins beat total losses you have positive expectancy. Your tested set: +12.0% avg win, -7.3% avg loss, 66.7% hit \u2192 +5.6% per trade. The edge is real.",m:"\u2192 Diagnostics tab quantifies this; the leak is execution (missed trades), not edge."},
+ {t:"Position sizing > system",s:"Van Tharp · Trade Your Way to Financial Freedom",p:"Tharp weights trading success ~ psychology, then position sizing (~30%), then system selection (~10%). How you size and divide capital matters more than the entry rules.",m:"\u2192 Simulator slots + sizing method are this lever. Try Risk% vs Equal."},
+ {t:"Reduce size when trading poorly",s:"Jack Schwager · Market Wizards",p:"\u201CWhen I am trading poorly, I keep reducing my position size \u2014 so I trade my smallest size when my trading is worst.\u201D Drawdowns cluster; de-risking into them protects capital.",m:"\u2192 Fix: 'Losing-streak de-risking'. Targets your 2018 cluster (5 losses)."},
+ {t:"Concentrate, don't over-diversify",s:"William O'Neil · How to Make Money in Stocks",p:"A \u20B920k\u2013100k account should hold 4\u20135 well-chosen stocks; broad diversification is a hedge for ignorance. Concentration + pyramiding is where outsized gains came from.",m:"\u2192 Sets the slot ceiling: 4\u20135 is the sweet spot, not 8."},
+ {t:"Cut losses 7\u20138% \u2014 from a real buy point",s:"William O'Neil · How to Make Money in Stocks",p:"Sell 7\u20138% below the buy point automatically. But a fixed % from the wrong reference whipsaws on noise \u2014 the stop must sit below real support.",m:"\u2192 Fix: 'ATR stop'. Your 7-day stop-outs sat inside normal volatility."},
+ {t:"Pyramid winners, never losers",s:"O'Neil / Livermore",p:"Add to positions that prove themselves; never average down. Concentrated pyramiding compounds the rare big winners.",m:"\u2192 Fix: 'Pyramid winners' adds a half-unit to trades up >8%."},
+ {t:"Know your drawdown recovery",s:"Beyond Technical Analysis / Encyclopedia of Trading Strategies",p:"A system's worst losing streak and how long it takes to recover are vital for the mental side. Expectancy is wasted if valid signals aren't actually taken.",m:"\u2192 Fix: 'False-negative recovery' \u2014 your 40 FN are the biggest unrealized gain."}];
+document.getElementById('bookList').innerHTML=BOOKS.map(b=>'<div class="book"><div class="src">'+b.s+'</div><h4>'+b.t+'</h4><p>'+b.p+'</p><div class="map">'+b.m+'</div></div>').join('');
+
+// diagnostics
+function drawBars(){const c=document.getElementById('bars'),x=c.getContext('2d'),W=c.width,H=c.height;x.clearRect(0,0,W,H);
+  const data=[['False Negative',40,'#c08a1e'],['True Positive',24,'#1f7a52'],['True Negative',24,'#7a8f86'],['False Positive',12,'#b03a2e']];
+  const max=44,bw=(W-80)/data.length;x.font='12px monospace';
+  data.forEach((d,i)=>{const h=d[1]/max*(H-56),X=50+i*bw,Y=H-32-h;x.fillStyle=d[2];x.fillRect(X,Y,bw-30,h);
+    x.fillStyle='#10221c';x.font='bold 16px monospace';x.fillText(d[1],X,Y-6);x.fillStyle='#5a6b63';x.font='11px monospace';x.fillText(d[0],X,H-14)})}
+const FINDINGS=[
+ {c:'crit',t:'Dominant error = missed trades',pill:'40 FN',p:'40 of 100 cases were valid setups you skipped (FalseNegative), vs only 12 bad buys (FalsePositive). The system is too conservative \u2014 the Step 11-12 recheck queue appears not to fire. Biggest lever by far.'},
+ {c:'',t:'Single-slot capital lock blocks winners',pill:'9 blocked',p:'All-in on one name blocks every overlapping signal \u2014 incl. winners WIPRO, CHOLAFIN, DLF, GAIL, HUDCO. 3\u20135 slots captures all; data never holds >3 at once.'},
+ {c:'',t:'Fixed-% stops whipsaw',pill:'5 in 7d',p:'JINDALSTEL, APLAPOLLO, BIOCON, ASTRAL, AMBUJACEM stopped out in exactly 7 days \u2014 the buffer sat inside normal noise. ATR stop addresses it.'},
+ {c:'',t:'Midcaps drag',pill:'54% vs 74%',p:'Midcap buys win 54% vs largecap 74% but are sized identically. Half-size or raise the score threshold for midcaps.'},
+ {c:'crit',t:'FII layer is untested',pill:'all NA',p:'Every FII/Market field in the tested data is NA \u2014 M7.1\u2019s headline feature is unvalidated. Wire a real FII feed into the scanner before trusting Step-13.'},
+ {c:'ok',t:'The edge itself is sound',pill:'+5.6%/trade',p:'66.7% win, 1.64 payoff, +5.6% expectancy. Fix execution and money management; the entry logic works.'}];
+document.getElementById('findings').innerHTML=FINDINGS.map(f=>'<div class="finding '+f.c+'"><b>'+f.t+'<span class="pill">'+f.pill+'</span></b><p>'+f.p+'</p></div>').join('');
+
+// CSV upload
+function parseCSV(txt){const lines=txt.trim().split(/\r?\n/);const H=lines[0].split(',');const idx=n=>H.indexOf(n);
+  const out=[];for(let i=1;i<lines.length;i++){const c=lines[i].split(',');const status=c[idx('status')];
+    if(status!=='WIN'&&status!=='LOSS')continue;
+    const e=new Date(c[idx('entry_date')]),x=new Date(c[idx('exit_date')]);const pct=parseFloat(c[idx('pct')]);
+    out.push({ticker:c[idx('sym')],mkt:'\u2014',entry:c[idx('entry_date')],exit:c[idx('exit_date')],pct,e,x,whip:false})}
+  return out}
+function handleFile(f){const rd=new FileReader();rd.onload=e=>{try{SCAN=parseCSV(e.target.result);
+  document.getElementById('scanInfo').innerHTML='<div class="finding ok"><b>Loaded '+SCAN.length+' booked trades</b><p>Switch the Simulator\u2019s data source to \u201CUploaded scanner output\u201D to simulate these.</p></div>';
+  document.querySelector('#dataSrc [data-s=scan]').disabled=false;
+  }catch(err){document.getElementById('scanInfo').innerHTML='<div class="finding crit"><b>Could not parse</b><p>Expected scanner simulation_*.csv with sym, entry_date, exit_date, pct, status columns.</p></div>'}};rd.readAsText(f)}
+const drop=document.getElementById('drop'),file=document.getElementById('file');
+drop.onclick=()=>file.click();file.onchange=e=>{if(e.target.files[0])handleFile(e.target.files[0])};
+drop.ondragover=e=>{e.preventDefault();drop.classList.add('hot')};drop.ondragleave=()=>drop.classList.remove('hot');
+drop.ondrop=e=>{e.preventDefault();drop.classList.remove('hot');if(e.dataTransfer.files[0])handleFile(e.dataTransfer.files[0])};
+
+// wiring
+document.querySelectorAll('.tab').forEach(t=>t.onclick=()=>{document.querySelectorAll('.tab').forEach(x=>x.classList.remove('on'));document.querySelectorAll('.view').forEach(x=>x.classList.remove('on'));t.classList.add('on');document.getElementById('v-'+t.dataset.v).classList.add('on');if(t.dataset.v==='diag')drawBars()});
+document.getElementById('cap').oninput=e=>{cfg.cap=+e.target.value;render()};
+document.getElementById('slots').oninput=e=>{cfg.slots=+e.target.value;render()};
+document.getElementById('risk').oninput=e=>{cfg.risk=+e.target.value;render()};
+document.getElementById('fnrate').oninput=e=>{cfg.fnrate=+e.target.value;render()};
+document.querySelectorAll('#method button').forEach(b=>b.onclick=()=>{cfg.method=b.dataset.m;document.querySelectorAll('#method button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('#dataSrc button').forEach(b=>b.onclick=()=>{if(b.dataset.s==='scan'&&!SCAN){return}cfg.src=b.dataset.s;document.querySelectorAll('#dataSrc button').forEach(x=>x.classList.toggle('on',x===b));render()});
+document.querySelectorAll('.tog').forEach(el=>{const cb=el.querySelector('input'),k=el.dataset.fix;el.onclick=e=>{if(e.target!==cb)cb.checked=!cb.checked;cfg[k]=cb.checked;el.classList.toggle('on',cb.checked);render()}});
+render();drawBars();
+</script></div></body></html>

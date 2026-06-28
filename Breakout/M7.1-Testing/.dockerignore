@@ -1,0 +1,13 @@
+.git
+.gitignore
+__pycache__
+**/__pycache__
+*.pyc
+venv
+.venv
+**/.DS_Store
+# Local CSV/text outputs from `python scan.py` runs — never bake these in.
+signals_*.csv
+simulation_*.csv
+summary_*.txt
+tracked_positions.json

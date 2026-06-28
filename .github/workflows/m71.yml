@@ -1,0 +1,38 @@
+name: Build M7.1 scanner image
+
+# Builds the M7.1-Long scanner (Flask backend + dashboard) for linux/amd64 and
+# pushes it to GHCR, so the Oracle VM pulls instead of building. Mirrors the
+# Prism docker.yml workflow.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "Breakout/M7.1-Testing/**"
+      - ".github/workflows/m71.yml"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push M7.1 image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./Breakout/M7.1-Testing
+          file: ./Breakout/M7.1-Testing/Dockerfile
+          platforms: linux/amd64
+          push: true
+          tags: ghcr.io/faiz9771/m71:latest

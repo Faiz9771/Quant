@@ -1,0 +1,27 @@
+# Local / build-on-host deployment. Builds the image from this folder and runs
+# the full M7.1 app exactly as `python app.py` does, on port 5050.
+#
+#   docker compose up -d --build
+#   open http://localhost:5050
+services:
+  m71:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "5050:5050"
+    environment:
+      PORT: 5050
+      M71_DATA_DIR: /app/data
+    volumes:
+      # Persist scans + FII history across redeploys (seeded from the baked
+      # copy on first boot by docker-entrypoint.sh).
+      - m71_scan_cache:/app/.scan_cache
+      - m71_fii_cache:/app/.fii_cache
+      # Persist the user's tracked/locked positions.
+      - ./data:/app/data
+    restart: unless-stopped
+
+volumes:
+  m71_scan_cache:
+  m71_fii_cache:
