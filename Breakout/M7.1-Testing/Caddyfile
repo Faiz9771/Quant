@@ -1,0 +1,8 @@
+# Caddy reverse proxy → clean HTTPS in front of the M7.1 app.
+# Caddy auto-provisions + renews a free Let's Encrypt cert for this hostname
+# (TLS-ALPN-01 on :443), so the app is reachable at https://m71long.duckdns.org
+# with no port and a valid padlock. `m71` is the compose service name; Caddy
+# reaches the app over the shared compose network at m71:5050.
+m71long.duckdns.org {
+	reverse_proxy m71:5050
+}
