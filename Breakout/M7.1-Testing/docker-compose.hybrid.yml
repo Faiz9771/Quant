@@ -9,8 +9,11 @@ services:
   m71:
     image: ghcr.io/faiz9771/m71:latest
     pull_policy: always
+    # Bound to loopback only: the app is reachable from the internet ONLY through
+    # the auth-gated caddy service. (Caddy still reaches it over the compose
+    # network at m71:5050.) For a local SSH-tunnel fallback: ssh -L 5050:127.0.0.1:5050
     ports:
-      - "5050:5050"
+      - "127.0.0.1:5050:5050"
     environment:
       PORT: 5050
       M71_DATA_DIR: /app/data

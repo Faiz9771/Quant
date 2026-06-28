@@ -4,5 +4,11 @@
 # with no port and a valid padlock. `m71` is the compose service name; Caddy
 # reaches the app over the shared compose network at m71:5050.
 m71long.duckdns.org {
+	# Single login gate over all routes (dashboard + every /api/*). Password is
+	# stored only as a bcrypt hash; generate a new one with:
+	#   docker run --rm caddy:2-alpine caddy hash-password --plaintext '<pw>'
+	basic_auth {
+		Faiz $2a$14$7NvaDvTC0nCkGpfqHnR1xOV3jJxUUZb/40OTYCq5OktpSm4/rQzOS
+	}
 	reverse_proxy m71:5050
 }
