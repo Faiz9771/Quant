@@ -78,8 +78,11 @@ td.l,th.l{text-align:left}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
 .chip{font-family:"SF Mono",monospace;font-size:11px;border:1px solid var(--line);background:#fff;border-radius:12px;padding:3px 10px;cursor:pointer;color:var(--green-d)}
 .chip:hover{background:#f0f6f1}
-@media(max-width:680px){.stats{grid-template-columns:1fr 1fr}.stats5{grid-template-columns:1fr 1fr}.ctl-row{grid-template-columns:1fr}h1{font-size:23px}}
+.signout{position:absolute;top:26px;right:20px;font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:#8a9189;text-decoration:none;border:1px solid var(--line);border-radius:4px;padding:5px 11px;background:var(--panel)}
+.signout:hover{color:var(--green-d);border-color:var(--green)}
+@media(max-width:680px){.stats{grid-template-columns:1fr 1fr}.stats5{grid-template-columns:1fr 1fr}.ctl-row{grid-template-columns:1fr}h1{font-size:23px}.signout{top:14px}}
 </style></head><body><div class="wrap">
+<a class="signout" href="/logout">Sign out</a>
 <p class="eyebrow">Model M7.1 · Long · Live</p>
 <h1>Live strategy scanner &amp; locked-capital simulator</h1>
 <p class="sub">Pick an exact date range, capital, slots and sizing — the dashboard runs the real M7.1 checklist

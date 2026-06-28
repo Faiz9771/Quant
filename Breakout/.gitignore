@@ -1,0 +1,10 @@
+.cache/
+__pycache__/
+*.pyc
+.DS_Store
+*.csv
+!config.yaml
+
+# M7.1 auth secrets (never commit)
+secrets.env
+**/secrets.env

@@ -17,6 +17,13 @@ services:
     environment:
       PORT: 5050
       M71_DATA_DIR: /app/data
+      M71_SECURE_COOKIE: "1"          # cookies marked Secure (served over HTTPS via caddy)
+    # Auth secrets (M71_AUTH_USER / M71_AUTH_PASS_HASH / M71_SECRET_KEY) live in
+    # secrets.env on the VM only — gitignored, never committed. required:false so
+    # local runs without the file still boot (auth simply stays disabled).
+    env_file:
+      - path: secrets.env
+        required: false
     volumes:
       - m71_scan_cache:/app/.scan_cache
       - m71_fii_cache:/app/.fii_cache
