@@ -126,9 +126,9 @@ def download_prices(tickers, start, end, min_rows=250):
             return True
         return False
 
-    # Big threaded batches first (fast); the retry passes + per-ticker fallback below
-    # still recover any names Yahoo drops under load, so robustness is preserved.
-    CHUNK = 25
+    # Small NON-threaded chunks: measured faster here than big threaded batches,
+    # which trip Yahoo rate-limiting from the cloud IP and fall into slow retries.
+    CHUNK = 8
     remaining = list(tickers)
     for attempt in range(3):
         if not remaining:
@@ -138,7 +138,7 @@ def download_prices(tickers, start, end, min_rows=250):
             chunk = remaining[i:i + CHUNK]
             try:
                 data = yf.download(chunk, start=start, end=end, group_by="ticker",
-                                   auto_adjust=True, progress=False, threads=True)
+                                   auto_adjust=True, progress=False, threads=False)
             except Exception as e:
                 log(f"[WARN] chunk download failed ({e}); will retry per-ticker")
                 data = None
@@ -152,7 +152,7 @@ def download_prices(tickers, start, end, min_rows=250):
                         got = False
                 if not got:
                     still.append(tk)
-            time.sleep(0.3)  # brief pause between batches
+            time.sleep(0.6)  # be gentle with Yahoo between chunks
         remaining = still
         if remaining and attempt < 2:
             log(f"[WARN] {len(remaining)} tickers empty; retry pass {attempt + 2} ...")
@@ -540,7 +540,10 @@ def scan_signals(start_date: str, end_date: str, progress=None):
                 e50=nifty_ema50, largecap=largecap)
 
     out = []
-    workers = int(os.environ.get("M71_SCAN_WORKERS", "2"))
+    # Serial by default: on the throttled micro VM (burstable vCPUs + 498MB)
+    # multiprocessing is SLOWER (CPU steal + memory contention). Set
+    # M71_SCAN_WORKERS=2+ only on a box with real, dedicated cores and RAM.
+    workers = int(os.environ.get("M71_SCAN_WORKERS", "1"))
     use_par = workers > 1 and len(stock_items) > 1
     if use_par:
         try:
