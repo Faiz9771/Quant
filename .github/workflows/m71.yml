@@ -1,8 +1,8 @@
 name: Build M7.1 scanner image
 
-# Builds the M7.1-Long scanner (Flask backend + dashboard) for linux/amd64 and
-# pushes it to GHCR, so the Oracle VM pulls instead of building. Mirrors the
-# Prism docker.yml workflow.
+# Builds the M7.1-Long scanner (Flask backend + dashboard) as a multi-arch image
+# (linux/amd64 + linux/arm64) and pushes it to GHCR, so it runs on both the x86
+# E2 micro and the ARM A1 box. The VM pulls; it never builds.
 
 on:
   push:
@@ -21,6 +21,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # arm64 is built under QEMU emulation, so multi-arch builds take longer.
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Log in to GHCR
         uses: docker/login-action@v3
         with:
@@ -28,11 +34,11 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push M7.1 image
+      - name: Build and push M7.1 image (amd64 + arm64)
         uses: docker/build-push-action@v6
         with:
           context: ./Breakout/M7.1-Testing
           file: ./Breakout/M7.1-Testing/Dockerfile
-          platforms: linux/amd64
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ghcr.io/faiz9771/m71:latest
