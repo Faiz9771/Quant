@@ -17,7 +17,7 @@ Run:
     # open http://127.0.0.1:5050
 """
 from __future__ import annotations
-import json, os, re, threading, time, traceback
+import json, os, re, sys, subprocess, threading, time, traceback
 from datetime import timedelta
 from functools import wraps
 from pathlib import Path
@@ -127,8 +127,12 @@ def logout():
     session.clear()
     return redirect("/login")
 
-# background scan jobs, keyed by range ("2023-01-01_2023-12-31")
-_jobs: dict[str, dict] = {}
+# Heavy scans run in a SEPARATE PROCESS (not a thread): the M7.1 checklist is
+# CPU/GIL-bound, so a background thread would block every other request on this
+# small single-worker box (logins, status polls, loading cached ranges all died
+# while a scan ran). The child writes progress + result to disk; the web worker
+# only spawns it and reads small status files, so it stays responsive.
+_procs: dict[str, subprocess.Popen] = {}   # job key -> running child process
 _jobs_guard = threading.Lock()
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -152,33 +156,43 @@ def _cache_path(sd: str, ed: str) -> Path:
     return CACHE_DIR / f"signals_{_range_key(sd, ed)}.json"
 
 
-def _worker(sd: str, ed: str, key: str):
-    job = _jobs[key]
-    try:
-        def progress(_tk):
-            job["done"] += 1
-        signals, meta = scanner.scan_signals(sd, ed, progress=progress)
-        payload = {"meta": meta, "signals": signals}
-        _cache_path(sd, ed).write_text(json.dumps(payload))
-        job["payload"] = payload
-        job["status"] = "done"
-    except Exception as e:
-        traceback.print_exc()
-        job["status"] = "error"
-        job["error"] = str(e)
+def _job_status_path(key: str) -> Path:
+    return CACHE_DIR / f"_job_{key}.json"
 
 
-def _start_job(sd: str, ed: str) -> dict:
-    key = _range_key(sd, ed)
+def _spawn_scan(key: str, runner_call: str):
+    """Start the heavy scan in a child process (idempotent per key). `runner_call`
+    is a scan.* call that writes the result to the cache file and progress to the
+    job-status file. Re-spawning while one is alive is a no-op."""
     with _jobs_guard:
-        existing = _jobs.get(key)
-        if existing and existing["status"] == "running":
-            return existing
-        job = {"status": "running", "done": 0, "total": 50,
-               "key": key, "started": time.time(), "payload": None, "error": None}
-        _jobs[key] = job
-    threading.Thread(target=_worker, args=(sd, ed, key), daemon=True).start()
-    return job
+        p = _procs.get(key)
+        if p and p.poll() is None:
+            return
+        _job_status_path(key).write_text(json.dumps({"status": "running", "done": 0, "total": 50}))
+        _procs[key] = subprocess.Popen([sys.executable, "-c", f"import scan; {runner_call}"],
+                                       cwd=str(HERE))
+
+
+def _read_job_status(key: str, cache_path: Path) -> dict:
+    """Resolve job state from disk so any worker can report it: a present cache
+    file means done; otherwise the job-status file (running/error); else idle."""
+    if cache_path.exists():
+        p = _procs.get(key)
+        if p is not None:
+            p.poll()                 # reap the finished child (no zombies)
+        return {"status": "done", "cached": True, **json.loads(cache_path.read_text())}
+    sp = _job_status_path(key)
+    if sp.exists():
+        try:
+            st = json.loads(sp.read_text())
+        except Exception:
+            return {"status": "running", "done": 0, "total": 50}
+        if st.get("status") == "running":
+            p = _procs.get(key)
+            if p is not None and p.poll() is not None:   # child died without writing a result
+                return {"status": "error", "error": "scan process exited unexpectedly"}
+        return st
+    return {"status": "idle"}
 
 
 def _parse_range():
@@ -206,9 +220,10 @@ def api_scan():
             return jsonify({"status": "done", "cached": True, **payload})
         if refresh and path.exists():
             path.unlink()
-        job = _start_job(sd, ed)
-        return jsonify({"status": job["status"], "key": job["key"],
-                        "done": job["done"], "total": job["total"]})
+        key = _range_key(sd, ed)
+        _spawn_scan(key, f"scan.run_range_job({sd!r}, {ed!r}, {str(path)!r}, "
+                         f"{str(_job_status_path(key))!r})")
+        return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -219,37 +234,10 @@ def api_status():
     """Poll a running scan. Returns progress, or the payload when finished."""
     try:
         sd, ed = _parse_range()
-        key = _range_key(sd, ed)
-        path = _cache_path(sd, ed)
-        job = _jobs.get(key)
-        if job and job["status"] == "done" and job["payload"]:
-            return jsonify({"status": "done", "cached": False, **job["payload"]})
-        if path.exists() and (not job or job["status"] != "running"):
-            return jsonify({"status": "done", "cached": True, **json.loads(path.read_text())})
-        if job and job["status"] == "error":
-            return jsonify({"status": "error", "error": job["error"]})
-        if job and job["status"] == "running":
-            return jsonify({"status": "running", "done": job["done"], "total": job["total"]})
-        return jsonify({"status": "idle"})
+        return jsonify(_read_job_status(_range_key(sd, ed), _cache_path(sd, ed)))
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
-
-
-def _live_worker(asof: str, key: str):
-    job = _jobs[key]
-    try:
-        def progress(_tk):
-            job["done"] += 1
-        signals, meta = scanner.live_scan(asof, progress=progress)
-        payload = {"meta": meta, "signals": signals}
-        (CACHE_DIR / f"live_{asof}.json").write_text(json.dumps(payload))
-        job["payload"] = payload
-        job["status"] = "done"
-    except Exception as e:
-        traceback.print_exc()
-        job["status"] = "error"
-        job["error"] = str(e)
 
 
 @app.route("/api/live")
@@ -264,14 +252,9 @@ def api_live():
         if refresh and path.exists():
             path.unlink()
         key = f"live_{asof}"
-        with _jobs_guard:
-            existing = _jobs.get(key)
-            if not (existing and existing["status"] == "running"):
-                _jobs[key] = {"status": "running", "done": 0, "total": 50,
-                              "key": key, "started": time.time(), "payload": None, "error": None}
-                threading.Thread(target=_live_worker, args=(asof, key), daemon=True).start()
-        j = _jobs[key]
-        return jsonify({"status": j["status"], "key": key, "done": j["done"], "total": j["total"]})
+        _spawn_scan(key, f"scan.run_live_job({asof!r}, {str(path)!r}, "
+                         f"{str(_job_status_path(key))!r})")
+        return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -282,18 +265,8 @@ def api_live_status():
     """Poll a running live scan."""
     try:
         asof = _norm_date(request.args.get("asof", pd.Timestamp.today().strftime("%Y-%m-%d")))
-        key = f"live_{asof}"
         path = CACHE_DIR / f"live_{asof}.json"
-        job = _jobs.get(key)
-        if job and job["status"] == "done" and job["payload"]:
-            return jsonify({"status": "done", "cached": False, **job["payload"]})
-        if path.exists() and (not job or job["status"] != "running"):
-            return jsonify({"status": "done", "cached": True, **json.loads(path.read_text())})
-        if job and job["status"] == "error":
-            return jsonify({"status": "error", "error": job["error"]})
-        if job and job["status"] == "running":
-            return jsonify({"status": "running", "done": job["done"], "total": job["total"]})
-        return jsonify({"status": "idle"})
+        return jsonify(_read_job_status(f"live_{asof}", path))
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500

@@ -29,6 +29,15 @@ services:
       - m71_fii_cache:/app/.fii_cache
       - ./data:/app/data
     restart: unless-stopped
+    # Keep-warm: ping the worker every 30s so its pages stay resident on this
+    # low-RAM box (otherwise the first hit after an idle spell pays a multi-second
+    # swap-in). Doubles as a liveness check.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:5050/login', timeout=8)"]
+      interval: 30s
+      timeout: 12s
+      retries: 3
+      start_period: 40s
 
   # Reverse proxy → free auto-HTTPS for https://m71long.duckdns.org. Tiny
   # (~15MB RAM) alpine image; reaches the app over the compose network at

@@ -56,23 +56,47 @@ def log(*a):
 
 # ----------------------------- data: Nifty 50 list -----------------------------
 def get_nifty50_symbols() -> list[str]:
-    """Scrape the Nifty 50 constituents from Wikipedia. Returns yfinance tickers (.NS)."""
-    url = "https://en.wikipedia.org/wiki/NIFTY_50"
+    """Nifty 50 constituents as yfinance tickers (.NS).
+
+    Cached to disk for 30 days: Wikipedia 403s from cloud IPs, so hitting it on
+    every scan added latency and flakiness. We reuse a fresh cache, only refetch
+    when stale, and cache even the bundled fallback so a 403 doesn't re-fire each
+    scan for a month.
+    """
+    import json as _json
+    cache = Path(__file__).parent / ".scan_cache" / "nifty50_list.json"
     try:
-        tables = pd.read_html(url)
-        for t in tables:
-            cols = [str(c).lower() for c in t.columns]
+        if cache.exists():
+            obj = _json.loads(cache.read_text())
+            age_days = (pd.Timestamp.now() - pd.Timestamp(obj["ts"])).days
+            if age_days < 30 and obj.get("symbols"):
+                return obj["symbols"]
+    except Exception:
+        pass
+
+    syms = None
+    try:
+        for t in pd.read_html("https://en.wikipedia.org/wiki/NIFTY_50"):
             sym_col = next((c for c in t.columns if "symbol" in str(c).lower()), None)
             if sym_col is not None:
-                syms = [str(s).strip().upper() for s in t[sym_col].dropna()]
-                syms = [s for s in syms if s.isalnum() or "&" in s]
-                if 40 <= len(syms) <= 55:
-                    return [f"{s}.NS" for s in syms]
-        raise RuntimeError("symbol column not found")
+                s = [str(x).strip().upper() for x in t[sym_col].dropna()]
+                s = [x for x in s if x.isalnum() or "&" in x]
+                if 40 <= len(s) <= 55:
+                    syms = [f"{x}.NS" for x in s]
+                    break
     except Exception as e:
         log(f"[WARN] Wikipedia fetch failed ({e}); using bundled fallback list.")
+
+    if not syms:
         from nifty_fallback import NIFTY50
-        return [f"{s}.NS" for s in NIFTY50]
+        syms = [f"{s}.NS" for s in NIFTY50]
+
+    try:
+        cache.parent.mkdir(exist_ok=True)
+        cache.write_text(_json.dumps({"ts": str(pd.Timestamp.now()), "symbols": syms}))
+    except Exception:
+        pass
+    return syms
 
 
 # ----------------------------- data: OHLCV -----------------------------
@@ -649,6 +673,47 @@ def live_quotes(syms):
             date=str(df.index[-1].date()),
         )
     return out
+
+
+def _run_job(out_path, status_path, fn, *args):
+    """Run a heavy scan `fn(*args, progress=...)` in THIS (child) process, writing
+    incremental progress to status_path and the final {meta,signals} payload to
+    out_path. app.py spawns this as a subprocess so the web worker never blocks on
+    the CPU-bound checklist. Status file lifecycle: running -> (out_path written) ->
+    done, or -> error with a message."""
+    from pathlib import Path as _P
+    state = {"n": 0}
+
+    def _wp(status, **extra):
+        try:
+            _P(status_path).write_text(json.dumps(
+                {"status": status, "done": state["n"], "total": 50, **extra}))
+        except Exception:
+            pass
+
+    def progress(_tk):
+        state["n"] += 1
+        if state["n"] % 2 == 0 or state["n"] >= 49:   # throttle disk writes
+            _wp("running")
+
+    try:
+        _wp("running")
+        signals, meta = fn(*args, progress=progress)
+        _P(out_path).write_text(json.dumps({"meta": meta, "signals": signals}))
+        _wp("done")
+    except Exception as e:
+        log(f"[scanjob] FAILED: {e}")
+        _wp("error", error=str(e))
+
+
+def run_range_job(start, end, out_path, status_path):
+    """Subprocess entry: full date-range opportunity scan -> out_path."""
+    _run_job(out_path, status_path, scan_signals, start, end)
+
+
+def run_live_job(asof, out_path, status_path):
+    """Subprocess entry: live 'today' watchlist scan -> out_path."""
+    _run_job(out_path, status_path, live_scan, asof)
 
 
 def _log_block(ledger, res, d, status, realized):
