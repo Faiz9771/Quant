@@ -28,7 +28,7 @@ HOW TO RUN
 Edit the CONFIG block to change capital, slots, and sizing.
 """
 from __future__ import annotations
-import argparse, sys, time, io
+import argparse, os, sys, time, io
 from datetime import datetime, timedelta
 import numpy as np
 import pandas as pd
@@ -126,7 +126,9 @@ def download_prices(tickers, start, end, min_rows=250):
             return True
         return False
 
-    CHUNK = 8
+    # Big threaded batches first (fast); the retry passes + per-ticker fallback below
+    # still recover any names Yahoo drops under load, so robustness is preserved.
+    CHUNK = 25
     remaining = list(tickers)
     for attempt in range(3):
         if not remaining:
@@ -136,7 +138,7 @@ def download_prices(tickers, start, end, min_rows=250):
             chunk = remaining[i:i + CHUNK]
             try:
                 data = yf.download(chunk, start=start, end=end, group_by="ticker",
-                                   auto_adjust=True, progress=False, threads=False)
+                                   auto_adjust=True, progress=False, threads=True)
             except Exception as e:
                 log(f"[WARN] chunk download failed ({e}); will retry per-ticker")
                 data = None
@@ -150,7 +152,7 @@ def download_prices(tickers, start, end, min_rows=250):
                         got = False
                 if not got:
                     still.append(tk)
-            time.sleep(0.6)  # be gentle with Yahoo between chunks
+            time.sleep(0.3)  # brief pause between batches
         remaining = still
         if remaining and attempt < 2:
             log(f"[WARN] {len(remaining)} tickers empty; retry pass {attempt + 2} ...")
@@ -425,6 +427,60 @@ def scan_and_simulate(start_year: int, end_year: int):
     return sig_df, led, prices, index_close, fii_df, cash, dd, stats_extra
 
 
+_PAR: dict = {}   # shared read-only state for parallel per-stock scanning
+
+
+def _scan_one_stock(tk):
+    """Scan ONE stock over the range using the shared _PAR state. Pure CPU, so it
+    runs in a worker process (one stock = one independent task). Returns
+    (ticker, [signal dicts]) — identical output to the old inline loop."""
+    P = _PAR
+    df = P["dfs"][tk]
+    index_close = P["index_close"]; cal_set = P["cal_set"]; ff_cache = P["ff_cache"]
+    nifty_ema9 = P["e9"]; nifty_ema25 = P["e25"]; nifty_ema50 = P["e50"]; largecap = P["largecap"]
+    rows = []
+    active_until = None
+    positions = {ts: pos for pos, ts in enumerate(df.index)}
+    for ts in df.index:
+        if ts not in cal_set:
+            continue
+        if active_until is not None and ts <= active_until:
+            continue
+        i = positions[ts]
+        if i < 220:
+            continue
+        sn = cl.Snapshot(df, i, index_close, ff_cache[ts])
+        res = cl.evaluate(sn)
+        if res["Verdict"] not in MIN_VERDICTS:
+            continue
+        entry, stop, t1 = res["Entry"], res["Stop"], res["T1"]
+        exit_px, exit_date, reason = _resolve_exit(df, i, entry, stop, t1)
+        exit_ts = pd.Timestamp(exit_date)
+        pct = (exit_px / entry - 1) * 100
+        tdays = positions.get(exit_ts, i) - i
+        nclose = float(index_close.loc[ts])
+        e9 = float(nifty_ema9.loc[ts]); e25 = float(nifty_ema25.loc[ts]); e50 = float(nifty_ema50.loc[ts])
+        above9 = bool(nclose > e9) if e9 == e9 else None
+        above25 = bool(nclose > e25) if e25 == e25 else None
+        above50 = bool(nclose > e50) if e50 == e50 else None
+        rows.append(dict(
+            sym=res["Symbol"] or tk.replace(".NS", ""),
+            entry_date=str(ts.date()), exit_date=str(exit_ts.date()),
+            entry=round(entry, 2), exit=round(exit_px, 2), pct=round(pct, 3),
+            reason=reason, verdict=res["Verdict"], score=res["Score"],
+            stop_pct=res.get("StopPct"), t1_pct=res.get("T1Pct"),
+            rs=res.get("RS"), confidence=res.get("Confidence"),
+            fii_status=res.get("FIIstatus"), base_height=res.get("BaseHeight"),
+            mkt=("LARGECAP" if tk in largecap else "MIDCAP"),
+            whip=bool(reason == "stop" and pct < 0 and tdays <= 7),
+            days_held=int(tdays),
+            nifty_above_9ema=above9, nifty_above_25ema=above25, nifty_above_50ema=above50,
+            atr_pct=(round(sn.atr / entry, 4) if (sn.atr == sn.atr and entry) else None),
+        ))
+        active_until = exit_ts
+    return tk, rows
+
+
 def scan_signals(start_date: str, end_date: str, progress=None):
     """
     Pure opportunity scan, DECOUPLED from money-management.
@@ -472,53 +528,41 @@ def scan_signals(start_date: str, end_date: str, progress=None):
     ranked = sorted(turnover, key=turnover.get, reverse=True)
     largecap = set(ranked[: max(1, len(ranked) // 2)])
 
-    ff_cache = {}
+    # Precompute FII features for every scan day ONCE (cheap), so the per-stock
+    # work below is pure CPU and can be split across cores.
+    ff_cache = {ts: fii_features(fii_df, ts) for ts in cal}
+
+    # Shared read-only state for the per-stock workers (inherited via fork — no
+    # pickling of the big price frames; only ticker strings cross the boundary).
+    global _PAR
+    _PAR = dict(dfs={tk: df for tk, df in stock_items}, index_close=index_close,
+                cal_set=cal_set, ff_cache=ff_cache, e9=nifty_ema9, e25=nifty_ema25,
+                e50=nifty_ema50, largecap=largecap)
+
     out = []
-    for tk, df in stock_items:
-        active_until = None
-        positions = {ts: pos for pos, ts in enumerate(df.index)}
-        for ts in df.index:
-            if ts not in cal_set:
-                continue
-            if active_until is not None and ts <= active_until:
-                continue
-            i = positions[ts]
-            if i < 220:
-                continue
-            if ts not in ff_cache:
-                ff_cache[ts] = fii_features(fii_df, ts)
-            sn = cl.Snapshot(df, i, index_close, ff_cache[ts])
-            res = cl.evaluate(sn)
-            if res["Verdict"] not in MIN_VERDICTS:
-                continue
-            entry, stop, t1 = res["Entry"], res["Stop"], res["T1"]
-            exit_px, exit_date, reason = _resolve_exit(df, i, entry, stop, t1)
-            exit_ts = pd.Timestamp(exit_date)
-            pct = (exit_px / entry - 1) * 100
-            tdays = positions.get(exit_ts, i) - i
-            # NIFTY regime on this trade's entry date
-            nclose = float(index_close.loc[ts])
-            e9 = float(nifty_ema9.loc[ts]); e25 = float(nifty_ema25.loc[ts]); e50 = float(nifty_ema50.loc[ts])
-            above9 = bool(nclose > e9) if e9 == e9 else None
-            above25 = bool(nclose > e25) if e25 == e25 else None
-            above50 = bool(nclose > e50) if e50 == e50 else None
-            out.append(dict(
-                sym=res["Symbol"] or tk.replace(".NS", ""),
-                entry_date=str(ts.date()), exit_date=str(exit_ts.date()),
-                entry=round(entry, 2), exit=round(exit_px, 2), pct=round(pct, 3),
-                reason=reason, verdict=res["Verdict"], score=res["Score"],
-                stop_pct=res.get("StopPct"), t1_pct=res.get("T1Pct"),
-                rs=res.get("RS"), confidence=res.get("Confidence"),
-                fii_status=res.get("FIIstatus"), base_height=res.get("BaseHeight"),
-                mkt=("LARGECAP" if tk in largecap else "MIDCAP"),
-                whip=bool(reason == "stop" and pct < 0 and tdays <= 7),
-                days_held=int(tdays),
-                nifty_above_9ema=above9, nifty_above_25ema=above25, nifty_above_50ema=above50,
-                atr_pct=(round(sn.atr / entry, 4) if (sn.atr == sn.atr and entry) else None),
-            ))
-            active_until = exit_ts
-        if progress:
-            progress(tk)
+    workers = int(os.environ.get("M71_SCAN_WORKERS", "2"))
+    use_par = workers > 1 and len(stock_items) > 1
+    if use_par:
+        try:
+            import concurrent.futures as cf, multiprocessing as mp
+            ctx = mp.get_context("fork")
+            with cf.ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+                futs = {ex.submit(_scan_one_stock, tk): tk for tk, _ in stock_items}
+                for fut in cf.as_completed(futs):
+                    _tk, rows = fut.result()
+                    out.extend(rows)
+                    if progress:
+                        progress(_tk)
+        except Exception as e:
+            log(f"[WARN] parallel scan failed ({e}); falling back to serial")
+            use_par = False
+            out = []
+    if not use_par:
+        for tk, _ in stock_items:
+            _tk, rows = _scan_one_stock(tk)
+            out.extend(rows)
+            if progress:
+                progress(_tk)
 
     out.sort(key=lambda r: r["entry_date"])
     # NIFTY 50 index closes over the scan range, for a rebased buy-&-hold benchmark line
