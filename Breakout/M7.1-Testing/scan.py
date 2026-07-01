@@ -101,6 +101,28 @@ def get_nifty50_symbols() -> list[str]:
 
 # ----------------------------- data: OHLCV -----------------------------
 def download_prices(tickers, start, end, min_rows=250):
+    """OHLCV download. Primary source is Zerodha Kite (data only, no execution);
+    falls back to yfinance if Kite isn't configured/logged in or errors out.
+
+    Set DATA_SOURCE=yfinance to force the old path (or DATA_SOURCE=kite to require Kite).
+    """
+    src = os.environ.get("DATA_SOURCE", "auto").lower()
+    if src in ("auto", "kite"):
+        try:
+            import kite_data
+            if src == "kite" or kite_data.is_configured():
+                out = kite_data.download_prices(tickers, start, end, min_rows=min_rows)
+                if src == "kite" or out:
+                    return out
+                log("[WARN] Kite returned no data; falling back to yfinance")
+        except Exception as e:
+            if src == "kite":
+                raise
+            log(f"[WARN] Kite source unavailable ({e}); falling back to yfinance")
+    return _download_prices_yf(tickers, start, end, min_rows=min_rows)
+
+
+def _download_prices_yf(tickers, start, end, min_rows=250):
     """
     Robust OHLCV download. Yahoo rate-limits big threaded batches (yfinance then throws
     "'NoneType' object is not subscriptable" for the dropped names), so we download in

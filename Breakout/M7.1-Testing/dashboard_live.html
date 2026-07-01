@@ -227,7 +227,8 @@ range drives a fresh scan (cached after the first run); capital / slots / sizing
   </div>
   <div class="panel">
     <p class="ph"><span>Tracked positions (locked) · drag a signal row here — or click its ＋</span><span><span id="trackTag"></span>
-      <button class="ghost" id="refreshQuotes" style="padding:3px 9px;font-size:11px;margin-left:8px">↻ Live prices</button>
+      <button class="ghost" id="addManual" style="padding:3px 9px;font-size:11px;margin-left:8px">＋ Add position</button>
+      <button class="ghost" id="refreshQuotes" style="padding:3px 9px;font-size:11px">↻ Live prices</button>
       <button class="ghost" id="clearTracked" style="padding:3px 9px;font-size:11px">Clear all</button></span></p>
     <div id="trackDrop" class="drop">⤓ Drag a row from the watchlist above to lock &amp; track it (tracks its live price &amp; live ATR)</div>
     <div class="scroll" style="margin-top:12px"><table id="trackTable" style="min-width:1440px"><thead><tr>
@@ -832,35 +833,51 @@ async function loadTracked(){
   }catch(e){}
   renderTracked();
 }
+function _uid(t){return t.uid||(t.uid='u'+Math.random().toString(36).slice(2,9)+Date.now().toString(36));}
+function atrStopEntryOf(t){                                  // manual override wins, else derive from ATR% at entry
+  if(t.atrStopEntry!=null&&t.atrStopEntry!=='')return +t.atrStopEntry;
+  return (t.atrPctEntry&&t.entry)?t.entry*(1-2*t.atrPctEntry):null;
+}
+const _INP='style="width:88px;font-family:monospace;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px"';
 function addTracked(sym){
   const s=LIVE.find(x=>x.sym===sym);if(!s)return;
   if(TRACKED.some(t=>t.sym===sym))return;  // already tracked
-  TRACKED.push({sym:s.sym,mkt:s.mkt,entry:s.entry,stop:s.stop,t1:s.t1,t2:s.t2,
-    atrPctEntry:s.atr_pct,trackedDate:(s.date||new Date().toISOString().slice(0,10)),live:null});
-  saveTracked();renderTracked();
+  const t={sym:s.sym,mkt:s.mkt,entry:s.entry,stop:s.stop,t1:s.t1,t2:s.t2,
+    atrPctEntry:s.atr_pct,trackedDate:(s.date||new Date().toISOString().slice(0,10)),live:null};
+  _uid(t);TRACKED.push(t);saveTracked();renderTracked();
 }
-function removeTracked(sym){TRACKED=TRACKED.filter(t=>t.sym!==sym);saveTracked();renderTracked();}
+function addManual(){
+  const t={sym:'',mkt:'LARGECAP',entry:0,capital:0,stop:0,t1:0,atrStopEntry:null,atrPctEntry:null,
+    trackedDate:new Date().toISOString().slice(0,10),live:null};
+  _uid(t);TRACKED.push(t);saveTracked();renderTracked();
+  const el=document.querySelector('.symin[data-uid="'+t.uid+'"]');if(el){el.focus();}
+}
+function removeTracked(uid){TRACKED=TRACKED.filter(t=>t.uid!==uid);saveTracked();renderTracked();}
 function clearTracked(){if(TRACKED.length&&confirm('Remove all tracked positions?')){TRACKED=[];saveTracked();renderTracked();}}
 function renderTracked(){
   const tb=document.querySelector('#trackTable tbody');
   document.getElementById('trackTag').textContent=TRACKED.length+' tracked';
-  if(!TRACKED.length){tb.innerHTML='<tr><td class="l" colspan="14">No tracked positions yet — drag a signal row in.</td></tr>';return}
+  if(!TRACKED.length){tb.innerHTML='<tr><td class="l" colspan="14">No tracked positions yet — drag a signal row in, or ＋ Add position.</td></tr>';return}
   tb.innerHTML=TRACKED.map(t=>{
-    const atrStopEntry=(t.atrPctEntry)?t.entry*(1-2*t.atrPctEntry):null;
+    const u=_uid(t);
+    const atrStopEntry=atrStopEntryOf(t);
     const lv=t.live, liveP=lv?lv.price:null, liveAtrPct=lv?lv.atr_pct:null;
     const liveAtrStop=(liveP&&liveAtrPct)?liveP*(1-2*liveAtrPct):null;
-    const pl=(liveP)?((liveP/t.entry-1)*100):null;
+    const pl=(liveP&&t.entry)?((liveP/t.entry-1)*100):null;
     const qty=t.entry?Math.floor((t.capital||0)/t.entry):0;
     const plrs=(liveP&&qty)?qty*(liveP-t.entry):null;
-    return '<tr><td class="l">'+t.sym+'</td><td>'+pr(t.entry)+'</td>'+
-      '<td class="l"><input type="number" class="capin" data-sym="'+t.sym+'" value="'+(t.capital||'')+'" placeholder="₹" style="width:96px;font-family:monospace;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px"></td>'+
-      '<td id="qty_'+t.sym+'">'+(qty||'—')+'</td>'+
-      '<td>'+pr(t.stop)+'</td><td>'+pr(atrStopEntry)+'</td><td>'+pr(t.t1)+'</td>'+
+    return '<tr><td class="l"><input type="text" class="symin" data-uid="'+u+'" value="'+(t.sym||'')+'" placeholder="TICKER" style="width:104px;text-transform:uppercase;font-size:12px;padding:3px 6px;border:1px solid var(--line);border-radius:4px"></td>'+
+      '<td><input type="number" step="any" class="entryin" data-uid="'+u+'" value="'+(t.entry||'')+'" placeholder="₹" '+_INP+'></td>'+
+      '<td class="l"><input type="number" class="capin" data-uid="'+u+'" value="'+(t.capital||'')+'" placeholder="₹" '+_INP+'></td>'+
+      '<td id="qty_'+u+'">'+(qty||'—')+'</td>'+
+      '<td><input type="number" step="any" class="stopin" data-uid="'+u+'" value="'+(t.stop||'')+'" placeholder="₹" '+_INP+'></td>'+
+      '<td><input type="number" step="any" class="atrsein" data-uid="'+u+'" value="'+(atrStopEntry!=null?(+atrStopEntry).toFixed(2):'')+'" placeholder="₹" '+_INP+'></td>'+
+      '<td><input type="number" step="any" class="t1in" data-uid="'+u+'" value="'+(t.t1||'')+'" placeholder="₹" '+_INP+'></td>'+
       '<td>'+(liveP!=null?pr(liveP):'—')+'</td><td>'+(liveAtrPct!=null?(liveAtrPct*100).toFixed(2)+'%':'—')+'</td><td>'+pr(liveAtrStop)+'</td>'+
-      '<td class="'+(pl>=0?'pos':'neg')+'">'+(pl!=null?((pl>=0?'+':'')+pl.toFixed(2)+'%'):'—')+'</td>'+
-      '<td id="plrs_'+t.sym+'" class="'+(plrs>=0?'pos':'neg')+'">'+(plrs!=null?inr(plrs):'—')+'</td>'+
+      '<td id="plpct_'+u+'" class="'+(pl>=0?'pos':'neg')+'">'+(pl!=null?((pl>=0?'+':'')+pl.toFixed(2)+'%'):'—')+'</td>'+
+      '<td id="plrs_'+u+'" class="'+(plrs>=0?'pos':'neg')+'">'+(plrs!=null?inr(plrs):'—')+'</td>'+
       '<td class="l">'+(lv?lv.date:'—')+'</td>'+
-      '<td><button class="ghost" style="padding:2px 7px;font-size:11px" onclick="removeTracked(\''+t.sym+'\')">✕</button></td></tr>';
+      '<td><button class="ghost" style="padding:2px 7px;font-size:11px" onclick="removeTracked(\''+u+'\')">✕</button></td></tr>';
   }).join('')+totalsRow();
 }
 function totalsRow(){
@@ -885,16 +902,20 @@ function updateTotals(){
   const pnlE=document.getElementById('tot_pnl');if(pnlE){pnlE.textContent=priced?((pnl>=0?'+':'')+inr(pnl)):'—';pnlE.className=(pnl>=0?'pos':'neg');}
 }
 function updateRowDerived(t){
+  const u=t.uid;
   const qty=t.entry?Math.floor((t.capital||0)/t.entry):0;
-  const qel=document.getElementById('qty_'+t.sym);if(qel)qel.textContent=qty||'—';
+  const qel=document.getElementById('qty_'+u);if(qel)qel.textContent=qty||'—';
   const lv=t.live, plrs=(lv&&lv.price&&qty)?qty*(lv.price-t.entry):null;
-  const pel=document.getElementById('plrs_'+t.sym);if(pel){pel.textContent=plrs!=null?inr(plrs):'—';pel.className=(plrs>=0?'pos':'neg');}
+  const pel=document.getElementById('plrs_'+u);if(pel){pel.textContent=plrs!=null?inr(plrs):'—';pel.className=(plrs>=0?'pos':'neg');}
+  const pl=(lv&&lv.price&&t.entry)?((lv.price/t.entry-1)*100):null;
+  const ppl=document.getElementById('plpct_'+u);if(ppl){ppl.textContent=pl!=null?((pl>=0?'+':'')+pl.toFixed(2)+'%'):'—';ppl.className=(pl>=0?'pos':'neg');}
   updateTotals();
 }
 async function refreshQuotes(){
-  if(!TRACKED.length){return}
+  const syms=TRACKED.map(t=>t.sym).filter(Boolean);
+  if(!syms.length){return}
   const btn=document.getElementById('refreshQuotes'),o=btn.textContent;btn.disabled=true;btn.textContent='…';
-  try{const d=await getJSON('/api/quote?syms='+encodeURIComponent(TRACKED.map(t=>t.sym).join(',')));
+  try{const d=await getJSON('/api/quote?syms='+encodeURIComponent(syms.join(',')));
     if(d.quotes)TRACKED.forEach(t=>{if(d.quotes[t.sym])t.live=d.quotes[t.sym]});
     saveTracked();renderTracked();
   }catch(e){}finally{btn.disabled=false;btn.textContent=o}
@@ -925,9 +946,18 @@ document.getElementById('liveTable').addEventListener('click',e=>{const a=e.targ
   dz.addEventListener('dragleave',()=>dz.classList.remove('hot'));
   dz.addEventListener('drop',e=>{e.preventDefault();dz.classList.remove('hot');const sym=e.dataTransfer.getData('text/plain');if(sym)addTracked(sym)});})();
 document.getElementById('refreshQuotes').onclick=refreshQuotes;
+document.getElementById('addManual').onclick=addManual;
 document.getElementById('clearTracked').onclick=clearTracked;
-document.getElementById('trackTable').addEventListener('input',e=>{const inp=e.target.closest('.capin');if(!inp)return;
-  const t=TRACKED.find(x=>x.sym===inp.dataset.sym);if(!t)return;t.capital=+inp.value||0;saveTracked();updateRowDerived(t);});
+document.getElementById('trackTable').addEventListener('input',e=>{
+  const inp=e.target.closest('input[data-uid]');if(!inp)return;
+  const t=TRACKED.find(x=>x.uid===inp.dataset.uid);if(!t)return;
+  if(inp.classList.contains('symin')){t.sym=inp.value.trim().toUpperCase();saveTracked();return;}   // no re-render (keep focus); live cols fill on ↻
+  if(inp.classList.contains('entryin')){t.entry=+inp.value||0;saveTracked();updateRowDerived(t);return;}
+  if(inp.classList.contains('capin')){t.capital=+inp.value||0;saveTracked();updateRowDerived(t);return;}
+  if(inp.classList.contains('stopin')){t.stop=+inp.value||0;saveTracked();return;}
+  if(inp.classList.contains('t1in')){t.t1=+inp.value||0;saveTracked();return;}
+  if(inp.classList.contains('atrsein')){t.atrStopEntry=(inp.value===''?null:(+inp.value||0));saveTracked();return;}
+});
 loadTracked();
 document.getElementById('dlLedger').onclick=downloadLedgerCSV;
 document.getElementById('copyLedger').onclick=copyLedgerCSV;

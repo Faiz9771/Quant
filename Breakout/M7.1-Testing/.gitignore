@@ -1,0 +1,6 @@
+.kite/
+tracked_positions.json
+__pycache__/
+.scan_cache/
+.fii_cache/
+*.key
