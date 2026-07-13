@@ -122,6 +122,43 @@ def download_prices(tickers, start, end, min_rows=250):
     return _download_prices_yf(tickers, start, end, min_rows=min_rows)
 
 
+def get_index_close(prices, start, end):
+    """Return the ^NSEI index Close series, fetching it robustly if absent.
+
+    The index is a single lone request that Yahoo often rate-limits from a cloud IP
+    after the 50-stock batch, and it must NOT be dropped by the stock-oriented
+    min_rows=250 gate (it only needs ~50 bars for EMA50 + the scan window). We retry
+    a few ways and, if all fail, raise a clear error instead of letting the caller
+    blow up with a bare KeyError: '^NSEI'.
+    """
+    if INDEX_TICKER in prices:
+        return prices[INDEX_TICKER]["Close"]
+
+    # Low min_rows so a short lead-in doesn't discard the index.
+    got = download_prices([INDEX_TICKER], start, end, min_rows=30)
+    if INDEX_TICKER not in got:
+        # Last resort: a direct, single-ticker yfinance pull (fresh request).
+        try:
+            import yfinance as yf
+            for _ in range(3):
+                h = yf.Ticker(INDEX_TICKER).history(start=start, end=end, auto_adjust=True)
+                if h is not None and len(h) > 30:
+                    if getattr(h.index, "tz", None) is not None:
+                        h = h.copy(); h.index = h.index.tz_localize(None)
+                    got[INDEX_TICKER] = h[["Open", "High", "Low", "Close", "Volume"]].copy()
+                    break
+                time.sleep(2.0)
+        except Exception as e:
+            log(f"[WARN] direct ^NSEI fetch failed: {e}")
+
+    if INDEX_TICKER not in got:
+        raise RuntimeError(
+            f"Could not download the NIFTY 50 index ({INDEX_TICKER}) for {start}..{end}. "
+            "Yahoo is likely rate-limiting this IP — retry the scan in a minute.")
+    prices.update(got)
+    return prices[INDEX_TICKER]["Close"]
+
+
 def _download_prices_yf(tickers, start, end, min_rows=250):
     """
     Robust OHLCV download. Yahoo rate-limits big threaded batches (yfinance then throws
@@ -341,9 +378,7 @@ def scan_and_simulate(start_year: int, end_year: int):
 
     tickers = get_nifty50_symbols()
     prices = download_prices(tickers, lead_start, scan_end)
-    if INDEX_TICKER not in prices:
-        prices.update(download_prices([INDEX_TICKER], lead_start, scan_end))
-    index_close = prices[INDEX_TICKER]["Close"]
+    index_close = get_index_close(prices, lead_start, scan_end)
     fii_df = get_fii_daily(lead_start, scan_end)
 
     cal = index_close[(index_close.index >= pd.Timestamp(scan_start)) &
@@ -526,9 +561,7 @@ def scan_signals(start_date: str, end_date: str, progress=None):
 
     tickers = get_nifty50_symbols()
     prices = download_prices(tickers, lead_start, scan_end)
-    if INDEX_TICKER not in prices:
-        prices.update(download_prices([INDEX_TICKER], lead_start, scan_end))
-    index_close = prices[INDEX_TICKER]["Close"]
+    index_close = get_index_close(prices, lead_start, scan_end)
     fii_df = get_fii_daily(lead_start, scan_end)
 
     cal = index_close[(index_close.index >= pd.Timestamp(scan_start)) &
@@ -616,9 +649,7 @@ def live_scan(asof: str | None = None, progress=None):
 
     tickers = get_nifty50_symbols()
     prices = download_prices(tickers, lead_start, end_dl)
-    if INDEX_TICKER not in prices:
-        prices.update(download_prices([INDEX_TICKER], lead_start, end_dl))
-    index_close = prices[INDEX_TICKER]["Close"]
+    index_close = get_index_close(prices, lead_start, end_dl)
     fii_df = get_fii_daily(lead_start, end_dl)
     e9, e25, e50 = cl.ema(index_close, 9), cl.ema(index_close, 25), cl.ema(index_close, 50)
 
@@ -700,7 +731,7 @@ def backfill_cache_days(cache_dir=None):
         log("[backfill] no dated signals"); return
 
     end_dl = (pd.Timestamp(hi) + pd.Timedelta(days=4)).strftime("%Y-%m-%d")
-    idx = download_prices([INDEX_TICKER], lo, end_dl, min_rows=5)[INDEX_TICKER].index
+    idx = get_index_close({}, lo, end_dl).index
     cal = np.array([d.strftime("%Y-%m-%d") for d in idx])
     log(f"[backfill] NSE calendar {cal[0]}..{cal[-1]} ({len(cal)} sessions)")
 
