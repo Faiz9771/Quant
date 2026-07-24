@@ -148,12 +148,24 @@ def _norm_date(s: str) -> str:
     return s
 
 
-def _range_key(sd: str, ed: str) -> str:
-    return f"{sd}_{ed}"
+def _universe() -> str:
+    """Selected index universe for this request (defaults to nifty50)."""
+    return scanner.normalize_universe(request.args.get("universe"))
 
 
-def _cache_path(sd: str, ed: str) -> Path:
-    return CACHE_DIR / f"signals_{_range_key(sd, ed)}.json"
+def _uni_prefix(universe: str) -> str:
+    """Cache-file/job-key infix per universe. Nifty 50 stays UNPREFIXED so every
+    pre-existing signals_/live_ cache file keeps working unchanged."""
+    universe = scanner.normalize_universe(universe)
+    return "" if universe == scanner.DEFAULT_UNIVERSE else f"{universe}_"
+
+
+def _range_key(sd: str, ed: str, universe: str = scanner.DEFAULT_UNIVERSE) -> str:
+    return f"{_uni_prefix(universe)}{sd}_{ed}"
+
+
+def _cache_path(sd: str, ed: str, universe: str = scanner.DEFAULT_UNIVERSE) -> Path:
+    return CACHE_DIR / f"signals_{_range_key(sd, ed, universe)}.json"
 
 
 def _job_status_path(key: str) -> Path:
@@ -213,16 +225,17 @@ def api_scan():
     """Kick off (or return cached) scan for a date range. Never blocks for the full scan."""
     try:
         sd, ed = _parse_range()
+        uni = _universe()
         refresh = request.args.get("refresh", "0") in ("1", "true", "yes")
-        path = _cache_path(sd, ed)
+        path = _cache_path(sd, ed, uni)
         if path.exists() and not refresh:
             payload = json.loads(path.read_text())
             return jsonify({"status": "done", "cached": True, **payload})
         if refresh and path.exists():
             path.unlink()
-        key = _range_key(sd, ed)
+        key = _range_key(sd, ed, uni)
         _spawn_scan(key, f"scan.run_range_job({sd!r}, {ed!r}, {str(path)!r}, "
-                         f"{str(_job_status_path(key))!r})")
+                         f"{str(_job_status_path(key))!r}, {uni!r})")
         return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
     except Exception as e:
         traceback.print_exc()
@@ -234,7 +247,8 @@ def api_status():
     """Poll a running scan. Returns progress, or the payload when finished."""
     try:
         sd, ed = _parse_range()
-        return jsonify(_read_job_status(_range_key(sd, ed), _cache_path(sd, ed)))
+        uni = _universe()
+        return jsonify(_read_job_status(_range_key(sd, ed, uni), _cache_path(sd, ed, uni)))
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -245,15 +259,16 @@ def api_live():
     """Kick off (or return cached) LIVE watchlist scan for `asof` (default today)."""
     try:
         asof = _norm_date(request.args.get("asof", pd.Timestamp.today().strftime("%Y-%m-%d")))
+        uni = _universe()
         refresh = request.args.get("refresh", "0") in ("1", "true", "yes")
-        path = CACHE_DIR / f"live_{asof}.json"
+        path = CACHE_DIR / f"live_{_uni_prefix(uni)}{asof}.json"
         if path.exists() and not refresh:
             return jsonify({"status": "done", "cached": True, **json.loads(path.read_text())})
         if refresh and path.exists():
             path.unlink()
-        key = f"live_{asof}"
+        key = f"live_{_uni_prefix(uni)}{asof}"
         _spawn_scan(key, f"scan.run_live_job({asof!r}, {str(path)!r}, "
-                         f"{str(_job_status_path(key))!r})")
+                         f"{str(_job_status_path(key))!r}, {uni!r})")
         return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
     except Exception as e:
         traceback.print_exc()
@@ -265,8 +280,9 @@ def api_live_status():
     """Poll a running live scan."""
     try:
         asof = _norm_date(request.args.get("asof", pd.Timestamp.today().strftime("%Y-%m-%d")))
-        path = CACHE_DIR / f"live_{asof}.json"
-        return jsonify(_read_job_status(f"live_{asof}", path))
+        uni = _universe()
+        path = CACHE_DIR / f"live_{_uni_prefix(uni)}{asof}.json"
+        return jsonify(_read_job_status(f"live_{_uni_prefix(uni)}{asof}", path))
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -309,14 +325,23 @@ def api_quote():
 
 @app.route("/api/cached")
 def api_cached():
-    """List date ranges already scanned & cached (instant to load)."""
+    """List date ranges already scanned & cached for the selected universe (instant to load)."""
+    uni = _universe()
+    prefix = _uni_prefix(uni)                       # "" for nifty50, "next50_" otherwise
     out = []
-    for p in sorted(CACHE_DIR.glob("signals_*.json")):
-        stem = p.stem.replace("signals_", "")
+    for p in sorted(CACHE_DIR.glob(f"signals_{prefix}*.json")):
+        stem = p.stem[len("signals_"):]
+        # Nifty 50 files are unprefixed, so skip any that belong to a prefixed
+        # universe (e.g. "next50_...") when listing the default universe.
+        if not prefix and any(stem.startswith(f"{u}_") for u in scanner.UNIVERSES
+                              if u != scanner.DEFAULT_UNIVERSE):
+            continue
+        if prefix:
+            stem = stem[len(prefix):]
         if "_" in stem:
             sd, ed = stem.split("_", 1)
             out.append({"start": sd, "end": ed})
-    return jsonify({"ranges": out})
+    return jsonify({"ranges": out, "universe": uni})
 
 
 if __name__ == "__main__":

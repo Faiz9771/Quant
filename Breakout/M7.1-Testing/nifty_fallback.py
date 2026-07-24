@@ -12,3 +12,18 @@ NIFTY50 = [
     "TATAMOTORS", "TATASTEEL", "TCS", "TECHM", "TITAN",
     "TRENT", "ULTRACEMCO", "WIPRO", "JIOFIN", "DIVISLAB",
 ]
+
+# Fallback Nifty Next 50 constituent symbols (NSE), used only if the Wikipedia
+# scrape fails. Same convention as NIFTY50 above; update if NSE rebalances.
+NIFTYNEXT50 = [
+    "ABB", "ADANIENSOL", "ADANIGREEN", "ADANIPOWER", "AMBUJACEM",
+    "BAJAJHFL", "BAJAJHLDNG", "BANKBARODA", "BOSCHLTD", "BPCL",
+    "BRITANNIA", "CANBK", "CGPOWER", "CHOLAFIN", "DLF",
+    "DMART", "GAIL", "GODREJCP", "HAL", "HAVELLS",
+    "HINDZINC", "HYUNDAI", "ICICIGI", "INDHOTEL", "IOC",
+    "IRFC", "JINDALSTEL", "JSWENERGY", "LICI", "LODHA",
+    "LTIM", "MAZDOCK", "MOTHERSON", "NAUKRI", "PFC",
+    "PIDILITIND", "PNB", "RECLTD", "SHREECEM", "SIEMENS",
+    "SOLARINDS", "TATAPOWER", "TORNTPHARM", "TVSMOTOR", "UNITDSPR",
+    "VBL", "VEDL", "ZYDUSLIFE", "IRCTC", "MARICO",
+]

@@ -54,17 +54,49 @@ def log(*a):
     print(*a, file=sys.stderr, flush=True)
 
 
-# ----------------------------- data: Nifty 50 list -----------------------------
-def get_nifty50_symbols() -> list[str]:
-    """Nifty 50 constituents as yfinance tickers (.NS).
+# ----------------------------- data: index universes -----------------------------
+# Selectable universes. The M7.1 analysis is IDENTICAL across them — only the set
+# of scanned tickers changes. The market-regime + relative-strength benchmark stays
+# the NIFTY 50 index (^NSEI) for every universe, so results are directly comparable.
+UNIVERSES = {
+    "nifty50": dict(
+        label="Nifty 50",
+        wiki="https://en.wikipedia.org/wiki/NIFTY_50",
+        cache="nifty50_list.json",
+        fallback="NIFTY50",
+    ),
+    "next50": dict(
+        label="Nifty Next 50",
+        wiki="https://en.wikipedia.org/wiki/NIFTY_Next_50",
+        cache="next50_list.json",
+        fallback="NIFTYNEXT50",
+    ),
+}
+DEFAULT_UNIVERSE = "nifty50"
 
-    Cached to disk for 30 days: Wikipedia 403s from cloud IPs, so hitting it on
-    every scan added latency and flakiness. We reuse a fresh cache, only refetch
-    when stale, and cache even the bundled fallback so a 403 doesn't re-fire each
-    scan for a month.
+
+def normalize_universe(universe: str | None) -> str:
+    """Coerce any incoming universe key to a supported one (defaults to nifty50)."""
+    u = str(universe or "").strip().lower()
+    return u if u in UNIVERSES else DEFAULT_UNIVERSE
+
+
+def universe_label(universe: str | None) -> str:
+    return UNIVERSES[normalize_universe(universe)]["label"]
+
+
+def get_universe_symbols(universe: str = DEFAULT_UNIVERSE) -> list[str]:
+    """Constituents of the chosen index universe as yfinance tickers (.NS).
+
+    Cached to disk per-universe for 30 days: Wikipedia 403s from cloud IPs, so
+    hitting it on every scan added latency and flakiness. We reuse a fresh cache,
+    only refetch when stale, and cache even the bundled fallback so a 403 doesn't
+    re-fire each scan for a month.
     """
     import json as _json
-    cache = Path(__file__).parent / ".scan_cache" / "nifty50_list.json"
+    universe = normalize_universe(universe)
+    spec = UNIVERSES[universe]
+    cache = Path(__file__).parent / ".scan_cache" / spec["cache"]
     try:
         if cache.exists():
             obj = _json.loads(cache.read_text())
@@ -76,7 +108,7 @@ def get_nifty50_symbols() -> list[str]:
 
     syms = None
     try:
-        for t in pd.read_html("https://en.wikipedia.org/wiki/NIFTY_50"):
+        for t in pd.read_html(spec["wiki"]):
             sym_col = next((c for c in t.columns if "symbol" in str(c).lower()), None)
             if sym_col is not None:
                 s = [str(x).strip().upper() for x in t[sym_col].dropna()]
@@ -85,11 +117,11 @@ def get_nifty50_symbols() -> list[str]:
                     syms = [f"{x}.NS" for x in s]
                     break
     except Exception as e:
-        log(f"[WARN] Wikipedia fetch failed ({e}); using bundled fallback list.")
+        log(f"[WARN] Wikipedia fetch failed ({e}); using bundled fallback list ({universe}).")
 
     if not syms:
-        from nifty_fallback import NIFTY50
-        syms = [f"{s}.NS" for s in NIFTY50]
+        import nifty_fallback
+        syms = [f"{s}.NS" for s in getattr(nifty_fallback, spec["fallback"])]
 
     try:
         cache.parent.mkdir(exist_ok=True)
@@ -97,6 +129,11 @@ def get_nifty50_symbols() -> list[str]:
     except Exception:
         pass
     return syms
+
+
+def get_nifty50_symbols() -> list[str]:
+    """Back-compat shim: the Nifty 50 universe."""
+    return get_universe_symbols("nifty50")
 
 
 # ----------------------------- data: OHLCV -----------------------------
@@ -538,11 +575,12 @@ def _scan_one_stock(tk):
     return tk, rows
 
 
-def scan_signals(start_date: str, end_date: str, progress=None):
+def scan_signals(start_date: str, end_date: str, progress=None, universe: str = DEFAULT_UNIVERSE):
     """
     Pure opportunity scan, DECOUPLED from money-management.
 
-    Runs the full M7.1 checklist on every Nifty 50 constituent for every trading day
+    Runs the full M7.1 checklist on every constituent of the chosen `universe`
+    (Nifty 50 or Nifty Next 50) for every trading day
     in the EXACT date range [start_date, end_date] (YYYY-MM-DD) and returns one record
     per DISTINCT trade opportunity (BUY / BUY STARTER), with its forward-resolved exit
     already computed. Unlike scan_and_simulate(), it does NOT apply slots / capital /
@@ -554,12 +592,13 @@ def scan_signals(start_date: str, end_date: str, progress=None):
     Returns (signals: list[dict], meta: dict). `progress`, if given, is called with each
     ticker as it finishes (for streaming a progress bar).
     """
+    universe = normalize_universe(universe)
     scan_start = str(start_date)
     scan_end   = str(end_date)
     # ~1 year lead-in so SMA200 / RS have history before the first scanned day
     lead_start = (pd.Timestamp(scan_start) - pd.DateOffset(years=1)).strftime("%Y-%m-%d")
 
-    tickers = get_nifty50_symbols()
+    tickers = get_universe_symbols(universe)
     prices = download_prices(tickers, lead_start, scan_end)
     index_close = get_index_close(prices, lead_start, scan_end)
     fii_df = get_fii_daily(lead_start, scan_end)
@@ -630,24 +669,26 @@ def scan_signals(start_date: str, end_date: str, progress=None):
         start_date=scan_start, end_date=scan_end, n_stocks=len(stock_items),
         n_signals=len(out), trading_days=len(cal),
         fii_live=bool(fii_df.attrs.get("live", False)),
+        universe=universe, universe_label=universe_label(universe),
         nifty=nifty,
     )
     return out, meta
 
 
-def live_scan(asof: str | None = None, progress=None):
+def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UNIVERSE):
     """
     LIVE watchlist: run the M7.1 checklist on the MOST RECENT available bar of every
-    Nifty 50 constituent and return the stocks that fire BUY / BUY STARTER *right now*
+    constituent of the chosen `universe` and return the stocks that fire BUY / BUY STARTER *right now*
     (as of `asof`, default today). These are OPEN signals — no forward exit is resolved,
     since the trade hasn't happened yet — so each row is an actionable entry/stop/targets
     plan plus the live NIFTY regime and FII context.
     """
+    universe = normalize_universe(universe)
     asof = asof or pd.Timestamp.today().normalize().strftime("%Y-%m-%d")
     end_dl = (pd.Timestamp(asof) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")  # yf end is exclusive
     lead_start = (pd.Timestamp(asof) - pd.DateOffset(months=18)).strftime("%Y-%m-%d")
 
-    tickers = get_nifty50_symbols()
+    tickers = get_universe_symbols(universe)
     prices = download_prices(tickers, lead_start, end_dl)
     index_close = get_index_close(prices, lead_start, end_dl)
     fii_df = get_fii_daily(lead_start, end_dl)
@@ -699,6 +740,7 @@ def live_scan(asof: str | None = None, progress=None):
     meta = dict(
         asof=str(last_ts.date()), requested=asof, n_stocks=len(stock_items),
         n_signals=len(out), fii_live=bool(fii_df.attrs.get("live", False)),
+        universe=universe, universe_label=universe_label(universe),
         nifty_close=round(float(index_close.iloc[-1]), 2),
         nifty_above_9ema=a9, nifty_above_25ema=a25, nifty_above_50ema=a50,
     )
@@ -806,14 +848,18 @@ def _run_job(out_path, status_path, fn, *args):
         _wp("error", error=str(e))
 
 
-def run_range_job(start, end, out_path, status_path):
+def run_range_job(start, end, out_path, status_path, universe=DEFAULT_UNIVERSE):
     """Subprocess entry: full date-range opportunity scan -> out_path."""
-    _run_job(out_path, status_path, scan_signals, start, end)
+    from functools import partial
+    fn = partial(scan_signals, universe=normalize_universe(universe))
+    _run_job(out_path, status_path, fn, start, end)
 
 
-def run_live_job(asof, out_path, status_path):
+def run_live_job(asof, out_path, status_path, universe=DEFAULT_UNIVERSE):
     """Subprocess entry: live 'today' watchlist scan -> out_path."""
-    _run_job(out_path, status_path, live_scan, asof)
+    from functools import partial
+    fn = partial(live_scan, universe=normalize_universe(universe))
+    _run_job(out_path, status_path, fn, asof)
 
 
 def _log_block(ledger, res, d, status, realized):

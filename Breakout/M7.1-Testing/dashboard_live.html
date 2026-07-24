@@ -86,7 +86,7 @@ td.l,th.l{text-align:left}
 <p class="eyebrow">Model M7.1 · Long · Live</p>
 <h1>Live strategy scanner &amp; locked-capital simulator</h1>
 <p class="sub">Pick an exact date range, capital, slots and sizing — the dashboard runs the real M7.1 checklist
-across all Nifty 50 names for every trading day in the range (with the live MoneyControl FII layer),
+across every name in your chosen universe (Nifty 50 or Nifty Next 50) for every trading day in the range (with the live MoneyControl FII layer),
 then simulates your locked-capital money-management rule on the result. No CSV, no uploads. The date
 range drives a fresh scan (cached after the first run); capital / slots / sizing recompute instantly.</p>
 
@@ -103,6 +103,14 @@ range drives a fresh scan (cached after the first run); capital / slots / sizing
 <div class="view on" id="v-sim">
   <div class="panel">
     <p class="ph"><span>Scan window</span><span id="scanMeta"></span></p>
+    <div class="ctl-row"><label>Universe to scan<small>which index constituents the M7.1 checklist runs on</small></label>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+        <select class="yr" id="universeSel" style="width:200px">
+          <option value="nifty50">Nifty 50</option>
+          <option value="next50">Nifty Next 50</option>
+        </select>
+        <small style="color:#8a9189">benchmark &amp; regime stay NIFTY 50 for both</small>
+      </div><div></div></div>
     <div class="ctl-row"><label>Date range to scan<small>exact dates · SMA200/RS get a 1-yr lead-in</small></label>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
         <input class="yr" id="startDate" type="date" min="2008-01-01" max="2025-12-31" value="2023-01-01" style="width:150px">
@@ -210,10 +218,14 @@ range drives a fresh scan (cached after the first run); capital / slots / sizing
 <div class="view" id="v-live">
   <div class="panel">
     <p class="ph"><span>Live scan · today's M7.1 signals on the latest bar</span><span id="liveMeta"></span></p>
-    <p class="sub" style="margin-bottom:12px">Runs the full checklist on the <b>most recent available bar</b> of every Nifty 50 stock and lists what fires a
+    <p class="sub" style="margin-bottom:12px">Runs the full checklist on the <b>most recent available bar</b> of every stock in the selected universe and lists what fires a
     <code>BUY</code> / <code>BUY STARTER</code> right now — your actionable watchlist with entry, stop &amp; targets. These are
     open signals (no exit yet), ranked by score.</p>
     <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+      <select class="yr" id="universeSelLive" style="width:170px">
+        <option value="nifty50">Nifty 50</option>
+        <option value="next50">Nifty Next 50</option>
+      </select>
       <button class="runbtn" id="liveBtn">📡 Run live scan (today)</button>
       <button class="ghost" id="liveRefresh" title="Ignore cache &amp; re-download">↻ fresh</button>
     </div>
@@ -718,11 +730,13 @@ function setStatus(msg,cls){const el=document.getElementById('status');el.classN
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 async function getJSON(url){const r=await fetch(url);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
 
+const UNI_LABELS={nifty50:'Nifty 50',next50:'Nifty Next 50'};
 let SCANNING=false;
 async function runScan(refresh){
   if(SCANNING)return;SCANNING=true;
   const sd=document.getElementById('startDate').value,ed=document.getElementById('endDate').value;
   if(!sd||!ed){setStatus('Pick a start and end date first.','err');SCANNING=false;return}
+  const uni=document.getElementById('universeSel').value,uniLbl=UNI_LABELS[uni]||uni;
   const span=sd+' → '+ed;
   const btn=document.getElementById('runBtn');btn.disabled=true;
   document.getElementById('progBar').style.display='block';
@@ -731,16 +745,16 @@ async function runScan(refresh){
   const t0=performance.now();
   try{
     // 1) kick off (or get cached)
-    let data=await getJSON('/api/scan?start='+sd+'&end='+ed+(refresh?'&refresh=1':''));
+    let data=await getJSON('/api/scan?start='+sd+'&end='+ed+'&universe='+uni+(refresh?'&refresh=1':''));
     // 2) poll until done if it's running
     let polls=0;
     while(data.status==='running'||data.status==='idle'){
       const pct=data.total?Math.round(100*data.done/data.total):10;
       setBar(pct);
-      setStatus('<span class="spin"></span>Scanning '+span+' — '+(data.done||0)+'/'+(data.total||50)+
+      setStatus('<span class="spin"></span>Scanning '+uniLbl+' · '+span+' — '+(data.done||0)+'/'+(data.total||50)+
         ' stocks through the M7.1 checklist… (first run downloads prices + FII, can take a minute or two)');
       await sleep(1500);
-      data=await getJSON('/api/status?start='+sd+'&end='+ed);
+      data=await getJSON('/api/status?start='+sd+'&end='+ed+'&universe='+uni);
       if(++polls>800)throw new Error('timed out waiting for scan');
     }
     if(data.status==='error')throw new Error(data.error||'scan error');
@@ -750,16 +764,17 @@ async function runScan(refresh){
     cfg.src='scan';
     document.querySelectorAll('#dataSrc button').forEach(b=>b.classList.toggle('on',b.dataset.s==='scan'));
     const secs=((performance.now()-t0)/1000).toFixed(1);
-    setStatus('Loaded <b>'+SCAN.length+'</b> signals · '+META.n_stocks+' stocks · '+META.trading_days+
+    setStatus('Loaded <b>'+SCAN.length+'</b> signals · '+(META.universe_label||uniLbl)+' · '+META.n_stocks+' stocks · '+META.trading_days+
       ' trading days · FII '+(META.fii_live?'<b>live (MoneyControl)</b>':'neutral')+(data.cached?' · from cache':' · '+secs+'s')+'.','ok');
-    document.getElementById('scanMeta').textContent=span+' · '+SCAN.length+' signals';
+    document.getElementById('scanMeta').textContent=(META.universe_label||uniLbl)+' · '+span+' · '+SCAN.length+' signals';
     renderSignals();render();loadCached();
   }catch(e){setStatus('Scan failed: '+e.message+' — is the server still running? See the terminal.','err')}
   finally{SCANNING=false;btn.disabled=false;setTimeout(()=>{document.getElementById('progBar').style.display='none';document.querySelector('#progBar i').style.width='0'},800)}
 }
 
 async function loadCached(){
-  try{const res=await fetch('/api/cached');const d=await res.json();
+  try{const uni=document.getElementById('universeSel').value;
+    const res=await fetch('/api/cached?universe='+uni);const d=await res.json();
     const box=document.getElementById('cachedChips');
     const ranges=d.ranges||[];
     if(!ranges.length){box.innerHTML='';return}
@@ -779,18 +794,20 @@ async function runLiveScan(refresh){
   const btn=document.getElementById('liveBtn');btn.disabled=true;
   document.getElementById('liveProg').style.display='block';
   const setBar=p=>{document.querySelector('#liveProg i').style.width=Math.max(5,Math.min(100,p))+'%'};setBar(8);
-  setLiveStatus('<span class="spin"></span>Scanning the latest bar of all Nifty 50 stocks (first run downloads prices + FII)…');
+  const uni=document.getElementById('universeSelLive').value,uniLbl=UNI_LABELS[uni]||uni;
+  const uq='universe='+uni;
+  setLiveStatus('<span class="spin"></span>Scanning the latest bar of all '+uniLbl+' stocks (first run downloads prices + FII)…');
   try{
-    let data=await getJSON('/api/live'+(refresh?'?refresh=1':''));
+    let data=await getJSON('/api/live?'+uq+(refresh?'&refresh=1':''));
     let polls=0;
     while(data.status==='running'||data.status==='idle'){
       const pct=data.total?Math.round(100*data.done/data.total):10;setBar(pct);
-      setLiveStatus('<span class="spin"></span>Scanning… '+(data.done||0)+'/'+(data.total||50)+' stocks');
-      await sleep(1500);data=await getJSON('/api/live_status');if(++polls>800)throw new Error('timed out');
+      setLiveStatus('<span class="spin"></span>Scanning '+uniLbl+'… '+(data.done||0)+'/'+(data.total||50)+' stocks');
+      await sleep(1500);data=await getJSON('/api/live_status?'+uq);if(++polls>800)throw new Error('timed out');
     }
     if(data.status==='error')throw new Error(data.error||'live scan error');
     setBar(100);renderLive(data.signals,data.meta);
-    setLiveStatus('As of <b>'+data.meta.asof+'</b> · '+data.signals.length+' live signal(s) · '+data.meta.n_stocks+
+    setLiveStatus('As of <b>'+data.meta.asof+'</b> · '+(data.meta.universe_label||uniLbl)+' · '+data.signals.length+' live signal(s) · '+data.meta.n_stocks+
       ' stocks · FII '+(data.meta.fii_live?'<b>live</b>':'neutral')+(data.cached?' · cached':'')+'.','ok');
   }catch(e){setLiveStatus('Live scan failed: '+e.message+' — is the server running?','err')}
   finally{LIVESCANNING=false;btn.disabled=false;setTimeout(()=>{document.getElementById('liveProg').style.display='none';document.querySelector('#liveProg i').style.width='0'},800)}
@@ -936,6 +953,7 @@ document.querySelectorAll('.tog').forEach(el=>{const cb=el.querySelector('input'
 document.querySelectorAll('#regimeBasis button').forEach(b=>b.onclick=()=>{cfg.regimeBasis=b.dataset.b;document.querySelectorAll('#regimeBasis button').forEach(x=>x.classList.toggle('on',x===b));renderSignals();render()});
 document.getElementById('runBtn').onclick=()=>runScan(false);
 document.getElementById('refreshBtn').onclick=()=>runScan(true);
+document.getElementById('universeSel').onchange=()=>{document.getElementById('scanMeta').textContent=UNI_LABELS[document.getElementById('universeSel').value]+' · not yet scanned';loadCached();};
 document.getElementById('liveBtn').onclick=()=>runLiveScan(false);
 document.getElementById('liveRefresh').onclick=()=>runLiveScan(true);
 // drag a live signal row -> track it; also the ＋ click adds it
