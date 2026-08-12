@@ -65,43 +65,64 @@ def _require_login():
 LOGIN_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>M7.1-Long · Sign in</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
-:root{--ink:#10221c;--paper:#f3efe6;--panel:#fbf9f3;--line:#d8d2c2;--green:#1f7a52;
---green-d:#0f5236;--red:#b03a2e;--mid:#7a8f86}
+:root{--bg:#000;--panel:#0a0d12;--sunk:#10151c;--head:#05070a;
+--border:#1b212a;--border2:#2a323e;--ink:#e9ecf1;--ink2:#b7bfca;--mut:#7b838f;--mut2:#525a66;
+--accent:#2f81f7;--accentSoft:#0b1930;--cyan:#39bdf8;--green:#26d07c;--red:#ff4d4d;--redSoft:#210f10;
+--mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+--sans:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
 *{box-sizing:border-box}
+html{color-scheme:dark;-webkit-text-size-adjust:100%}
 body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;
-background:var(--paper);color:var(--ink);
-font-family:"Iowan Old Style","Palatino Linotype",Georgia,serif;line-height:1.5;
+background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:13.5px;line-height:1.42;
 -webkit-font-smoothing:antialiased;padding:24px}
-.card{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);
-border-radius:6px;padding:30px 30px 26px;box-shadow:0 14px 40px rgba(16,34,28,.08)}
-.eyebrow{font-family:"SF Mono",ui-monospace,Menlo,monospace;font-size:11px;letter-spacing:.28em;
-text-transform:uppercase;color:var(--green-d);margin:0 0 8px}
-h1{font-size:24px;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
-.sub{color:#5a6b63;font-size:14px;margin:0 0 22px}
-label{display:block;font-size:12px;font-family:"SF Mono",monospace;letter-spacing:.12em;
-text-transform:uppercase;color:#8a9189;margin:0 0 5px}
-input{width:100%;font:inherit;font-size:15px;background:#fff;border:1px solid var(--line);
-border-radius:4px;padding:10px 12px;margin-bottom:16px;color:var(--ink)}
-input:focus{outline:none;border-color:var(--green);box-shadow:0 0 0 3px rgba(31,122,82,.12)}
-button{width:100%;background:var(--green-d);color:#fff;border:none;border-radius:4px;
-padding:11px 18px;font:inherit;font-size:15px;font-weight:600;cursor:pointer;margin-top:2px}
-button:hover{background:#0a3d28}
-.err{background:#f6e3df;color:var(--red);border:1px solid #e3c4bd;border-radius:4px;
-padding:9px 12px;font-size:13px;margin-bottom:16px}
-.foot{margin-top:18px;font-size:11.5px;color:#8a9189;text-align:center;
-font-family:"SF Mono",monospace;letter-spacing:.04em}
+::selection{background:rgba(47,129,247,.28);color:#fff}
+.card{width:100%;max-width:390px;background:var(--panel);border:1px solid var(--border);
+border-top:2px solid var(--accent);border-radius:3px;padding:26px 26px 22px}
+.brand{display:flex;align-items:center;gap:11px;margin:0 0 6px}
+.mark{width:32px;height:32px;border-radius:2px;background:var(--accent);color:#fff;display:grid;
+place-items:center;font-family:var(--mono);font-size:11px;font-weight:700;flex:none}
+.brandtxt{display:flex;flex-direction:column;gap:1px;line-height:1.18}
+.brandtxt b{font-family:var(--mono);font-size:14.5px;font-weight:700;letter-spacing:.2px;
+color:var(--accent);text-transform:uppercase}
+.brandtxt small{font-size:11px;color:var(--mut);font-family:var(--mono);letter-spacing:.3px}
+h1{font-family:var(--mono);font-size:12px;font-weight:700;color:var(--cyan);text-transform:uppercase;
+letter-spacing:1px;margin:22px 0 6px;display:flex;align-items:center;gap:9px}
+h1::before{content:"";width:3px;height:12px;background:var(--accent);flex:none}
+.sub{color:var(--mut);font-size:11.5px;margin:0 0 22px;font-family:var(--mono)}
+label{display:block;color:var(--accent);font-size:10px;font-weight:600;text-transform:uppercase;
+letter-spacing:.6px;font-family:var(--mono);margin:0 0 5px}
+input{width:100%;background:var(--sunk);border:1px solid var(--border2);color:var(--ink);
+border-radius:2px;padding:9px 11px;font-size:13px;font-family:var(--mono);margin-bottom:16px;
+transition:border-color .12s,box-shadow .12s}
+input:hover{border-color:#3a434f}
+input:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 2px rgba(47,129,247,.4)}
+button{width:100%;background:var(--accent);color:#fff;border:0;border-radius:2px;padding:10px 20px;
+font-family:var(--mono);font-size:12.5px;font-weight:700;cursor:pointer;letter-spacing:.4px;
+text-transform:uppercase;margin-top:4px;transition:background .12s,transform .05s}
+button:hover{background:#58a6ff}
+button:active{transform:translateY(1px)}
+.err{color:#ff7a72;background:var(--redSoft);border:1px solid #4a1c1c;border-radius:2px;
+padding:11px 13px;font-size:12px;margin-bottom:16px;font-family:var(--mono)}
+.foot{margin-top:20px;padding-top:14px;border-top:1px solid var(--border);font-size:10px;
+color:var(--mut2);text-align:center;font-family:var(--mono);letter-spacing:.6px;text-transform:uppercase}
 </style></head><body>
 <form class="card" method="post" action="/login" autocomplete="off">
-  <p class="eyebrow">Model M7.1 · Long · Live</p>
-  <h1>Sign in</h1>
+  <div class="brand">
+    <span class="mark" aria-hidden="true">M7</span>
+    <span class="brandtxt"><b>M7.1 Long</b><small>Strategy desk</small></span>
+  </div>
+  <h1>Authenticate</h1>
   <p class="sub">Strategy scanner &amp; locked-capital simulator.</p>
   {% if err %}<div class="err">{{ err }}</div>{% endif %}
   <label for="u">Username</label>
   <input id="u" name="username" type="text" autocapitalize="off" autocorrect="off" autofocus>
   <label for="p">Password</label>
   <input id="p" name="password" type="password">
-  <button type="submit">Enter dashboard →</button>
+  <button type="submit">Sign in</button>
   <p class="foot">Private deployment · authorized access only</p>
 </form></body></html>"""
 
