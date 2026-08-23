@@ -207,6 +207,17 @@ SEGMENT_BY_UNIVERSE = {
 _SEGMENTS: dict | None = None
 
 
+def _list_cache_age(universe: str) -> float:
+    """Age in seconds of a universe's cached constituent list (inf if absent)."""
+    import json as _json
+    cache = Path(__file__).parent / ".scan_cache" / UNIVERSES[universe]["cache"]
+    try:
+        ts = _json.loads(cache.read_text())["ts"]
+        return (pd.Timestamp.now() - pd.Timestamp(ts)).total_seconds()
+    except Exception:
+        return float("inf")
+
+
 def market_cap_segments() -> dict:
     """Ticker ("RELIANCE.NS") -> "LARGECAP" / "MIDCAP" / "SMALLCAP" per NSE.
 
@@ -215,13 +226,25 @@ def market_cap_segments() -> dict:
     """
     global _SEGMENTS
     if _SEGMENTS is None:
-        seg = {}
-        for uni, label in SEGMENT_BY_UNIVERSE.items():
+        lists, seg = {}, {}
+        for uni in SEGMENT_BY_UNIVERSE:
             try:
-                for tk in get_universe_symbols(uni):
-                    seg.setdefault(tk, label)
+                lists[uni] = get_universe_symbols(uni)
             except Exception as e:
                 log(f"[WARN] segment map: {uni} unavailable ({e}).")
+        # The per-universe caches expire independently, so one can be a month
+        # older than another and still name a stock NSE has since moved between
+        # indices (a stale Nifty 50 list kept claiming HEROMOTOCO/INDUSINDBK
+        # after they were demoted to Midcap 150). On a clash the FRESHER list
+        # wins, so segments follow the most recent NSE snapshot we hold.
+        for uni in sorted(lists, key=_list_cache_age, reverse=True):
+            label = SEGMENT_BY_UNIVERSE[uni]
+            for tk in lists[uni]:
+                prev = seg.get(tk)
+                if prev and prev != label:
+                    log(f"[WARN] segment clash for {tk}: {prev} -> {label} "
+                        f"(stale constituent cache; {uni} is fresher).")
+                seg[tk] = label
         _SEGMENTS = seg
     return _SEGMENTS
 
