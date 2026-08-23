@@ -477,8 +477,8 @@ tbody tr:last-child td{border-bottom:0}
     <label class="tog" data-fix="atr"><input type="checkbox"><span><b>ATR-based stop</b> — rescue the fast whipsaws
       <small>Signals stopped out within 7 days sit inside normal noise. A volatility-aware stop holds through the shake-out; models those whip-losses converting to modest gains.</small>
       <span class="cite">O'Neil: cut losses 7–8%, but only below a real buy point · Beyond Tech Analysis: exits via trailing/ATR not fixed ticks</span></span></label>
-    <label class="tog" data-fix="midcap"><input type="checkbox"><span><b>Half-size midcaps</b> — fund the stronger segment
-      <small>Midcap buys historically win less than largecaps. Halve midcap size so the weaker segment can't drag the book.</small>
+    <label class="tog" data-fix="midcap"><input type="checkbox"><span><b>Half-size mid/smallcaps</b> — fund the stronger segment
+      <small>Mid/smallcap buys historically win less than largecaps. Halves every non-largecap position — so it does nothing on a Nifty 50 / Next 50 scan (all largecap) and halves the whole book on a Midcap 150 / Smallcap 250 scan.</small>
       <span class="cite">Tharp: position sizing ≈ how you meet objectives · Schwager: bet smaller where edge is thinner</span></span></label>
     <label class="tog" data-fix="streak"><input type="checkbox"><span><b>Losing-streak de-risking</b> — cut size after consecutive losses
       <small>After 2+ straight losses, reduce next position to 50% until a win resets it. Smooths drawdown clusters.</small>
@@ -625,7 +625,7 @@ function run(c,trades){
     const stopDist=(tr.stopDist&&tr.stopDist>0.005)?tr.stopDist:0.075;
     let want=sizePosition(c,tr,basis,stopDist,lossRun,open);
     if(c.sizingModel!=='confidence'&&tr.verdict==='BUY STARTER')want*=0.4; // confidence folds STARTER in itself
-    if(c.midcap&&tr.mkt==='MIDCAP')want*=0.5;
+    if(c.midcap&&isSmaller(tr))want*=0.5;
     if(c.streak&&lossRun>=2)want*=0.5;
     if(c.pyramid&&pct>8)want*=1.5;
     // portfolio heat cap (Tharp): total open risk can't exceed maxHeat% of equity.
@@ -957,7 +957,7 @@ function drawLedger(r){document.querySelector('#ledger tbody').innerHTML=r.led.m
   const put=t.locked||0, ret=taken?put*(1+t.plShown/100):null;
   const pl=taken?((t.plShown>=0?'+':'')+t.plShown.toFixed(2)+'%'):'—';
   const ptsTxt=pts==null?'—':((pts>=0?'+':'')+pts.toFixed(2));
-  const seg=t.mkt==='LARGECAP'?'LC':t.mkt==='MIDCAP'?'MC':'—';
+  const seg=segTag(t.mkt);
   return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+seg+'</td><td class="l">'+regimeBadge(t)+'</td>'+
     '<td>'+(t.entry||'')+'</td><td>'+(taken?(t.exit||''):'—')+'</td><td>'+(taken?(heldDays(t)!=null?heldDays(t):'—'):'—')+'</td>'+
     '<td>'+pr(ep)+'</td><td>'+pr(stopPx)+'</td><td>'+pr(tgtPx)+'</td><td>'+(taken?pr(xp):'—')+'</td>'+
@@ -981,8 +981,8 @@ document.getElementById('bookList').innerHTML=BOOKS.map(b=>'<div class="book"><d
 function drawBars(){const c=document.getElementById('bars'),x=c.getContext('2d'),W=c.width,H=c.height;x.clearRect(0,0,W,H);
   const trades=activeTrades();if(!trades.length)return;
   const wins=trades.filter(t=>t.pct>0).length,losses=trades.length-wins;
-  const whip=trades.filter(t=>t.whip).length,mid=trades.filter(t=>t.mkt==='MIDCAP').length;
-  const data=[['Winners',wins,'#26d07c'],['Losers',losses,'#ff4d4d'],['Whip stops (<7d)',whip,'#2f81f7'],['Midcap signals',mid,'#7b838f']];
+  const whip=trades.filter(t=>t.whip).length,mid=trades.filter(isSmaller).length;
+  const data=[['Winners',wins,'#26d07c'],['Losers',losses,'#ff4d4d'],['Whip stops (<7d)',whip,'#2f81f7'],['Mid/smallcap signals',mid,'#7b838f']];
   const max=Math.max(1,...data.map(d=>d[1]))*1.15,bw=(W-80)/data.length;x.font='12px monospace';
   data.forEach((d,i)=>{const h=d[1]/max*(H-56),X=50+i*bw,Y=H-32-h;x.fillStyle=d[2];x.fillRect(X,Y,bw-30,h);
     x.fillStyle='#e9ecf1';x.font='700 17px "IBM Plex Mono",ui-monospace,monospace' ;x.fillText(d[1],X,Y-6);x.fillStyle='#7b838f';x.font='600 11px "IBM Plex Mono",ui-monospace,monospace' ;x.fillText(d[0],X,H-14)})}
@@ -991,13 +991,13 @@ function renderFindings(r){
   const wr=n?(100*wins/n).toFixed(0):0;
   const avgW=avg(trades.filter(t=>t.pct>0).map(t=>t.pct)),avgL=avg(trades.filter(t=>t.pct<=0).map(t=>t.pct));
   const exp=(n?(wins/n*avgW+(1-wins/n)*avgL):0).toFixed(1);
-  const lc=trades.filter(t=>t.mkt==='LARGECAP'),mc=trades.filter(t=>t.mkt==='MIDCAP');
+  const lc=trades.filter(t=>t.mkt==='LARGECAP'),mc=trades.filter(isSmaller);
   const lcWr=lc.length?(100*lc.filter(t=>t.pct>0).length/lc.length).toFixed(0):'—';
   const mcWr=mc.length?(100*mc.filter(t=>t.pct>0).length/mc.length).toFixed(0):'—';
   const F=[
     {c:exp>0?'ok':'crit',t:'Per-signal expectancy',pill:exp+'%/sig',p:'Win rate '+wr+'% · avg win +'+avgW.toFixed(1)+'% · avg loss '+avgL.toFixed(1)+'%, across '+n+' signals. '+(exp>0?'Edge is positive.':'Edge is negative for this span.')},
     {c:r.blocked>0?'':'ok',t:'Capital lock blocks signals',pill:r.blocked+' blocked',p:r.blocked+' signals couldn’t be booked at '+cfg.slots+' slots / '+inr(cfg.cap)+'. Raise slots or capital to capture more; watch drawdown.'},
-    {c:mcWr!=='—'&&+mcWr<+lcWr?'':'',t:'Largecap vs midcap hit-rate',pill:lcWr+'% / '+mcWr+'%',p:'Largecaps win '+lcWr+'% vs midcaps '+mcWr+'%. If midcaps lag, the half-size midcap fix funds the stronger segment.'},
+    {c:mcWr!=='—'&&+mcWr<+lcWr?'':'',t:'Largecap vs mid/smallcap hit-rate',pill:lcWr+'% / '+mcWr+'%',p:'Largecaps win '+lcWr+'% vs mid/smallcaps '+mcWr+'%. Segments follow NSE (Nifty 100 / Midcap 150 / Smallcap 250), so a single-segment universe shows one side only.'},
     {c:META&&!META.fii_live?'crit':'ok',t:'FII (Step-13) layer',pill:META&&META.fii_live?'live':'neutral',p:META&&META.fii_live?'A live FII feed drove Step-13 scoring.':'FII feed was not live — Step-13 ran as H1-Neutral. Wire Kite/NSE FII data into scan.py for the real layer.'}];
   document.getElementById('findings').innerHTML=F.map(f=>'<div class="finding '+f.c+'"><b>'+f.t+'<span class="pill">'+f.pill+'</span></b><p>'+f.p+'</p></div>').join('');
   document.getElementById('diagTag').textContent=n+' signals';
@@ -1012,7 +1012,7 @@ function renderSignals(){
     const stopPx=t.entryPx*(1-t.stopDist),tgtPx=(t.t1Pct!=null)?t.entryPx*(1+t.t1Pct/100):null,pts=t.exitPx-t.entryPx;
     const atrStop=(t.atrPct&&t.atrPct>0)?t.entryPx*(1-2*t.atrPct):null;
     const atrTxt=(t.atrPct&&t.atrPct>0)?(t.atrPct*100).toFixed(2)+'%':'—';
-    return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+(t.mkt==='LARGECAP'?'LC':'MC')+'</td><td class="l">'+regimeBadge(t)+'</td>'+
+    return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+segTag(t.mkt)+'</td><td class="l">'+regimeBadge(t)+'</td>'+
       '<td class="l">'+t.verdict.replace('BUY STARTER','STARTER')+'</td><td>'+t.score+'</td>'+
       '<td>'+t.entry+'</td><td>'+pr(t.entryPx)+'</td><td>'+pr(stopPx)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(tgtPx)+'</td>'+
       '<td>'+t.exit+'</td><td>'+pr(t.exitPx)+'</td>'+
@@ -1036,6 +1036,10 @@ async function getJSON(url){const r=await fetch(url);if(!r.ok)throw new Error('H
 
 const UNI_LABELS={nifty50:'Nifty 50',next50:'Nifty Next 50',midcap150:'Nifty Midcap 150',smallcap250:'Nifty Smallcap 250'};
 const UNI_SIZES={nifty50:50,next50:50,midcap150:150,smallcap250:250};
+// Segment is NSE's own classification (Nifty 100 = large, Midcap 150 = mid,
+// Smallcap 250 = small), not a turnover rank within the scanned set.
+const segTag=m=>m==='LARGECAP'?'LC':m==='MIDCAP'?'MC':m==='SMALLCAP'?'SC':'—';
+const isSmaller=t=>t.mkt==='MIDCAP'||t.mkt==='SMALLCAP';
 let SCANNING=false;
 async function runScan(refresh){
   if(SCANNING)return;SCANNING=true;
@@ -1131,7 +1135,7 @@ function renderLive(sigs,meta){
     const risk=s.stop_pct!=null?Math.abs(s.stop_pct).toFixed(1):'—',rew=s.t1_pct!=null?s.t1_pct.toFixed(1):'—';
     const atrStop=(s.atr_pct&&s.atr_pct>0)?s.entry*(1-2*s.atr_pct):null;
     const atrTxt=(s.atr_pct&&s.atr_pct>0)?(s.atr_pct*100).toFixed(2)+'%':'—';
-    return '<tr draggable="true" data-sym="'+s.sym+'"><td class="l"><span class="addtrk" data-sym="'+s.sym+'" title="track this position">＋</span>'+s.sym+'</td><td class="l">'+(s.mkt==='LARGECAP'?'LC':'MC')+'</td><td class="l">'+badge+'</td>'+
+    return '<tr draggable="true" data-sym="'+s.sym+'"><td class="l"><span class="addtrk" data-sym="'+s.sym+'" title="track this position">＋</span>'+s.sym+'</td><td class="l">'+segTag(s.mkt)+'</td><td class="l">'+badge+'</td>'+
       '<td class="l">'+s.verdict.replace('BUY STARTER','STARTER')+'</td><td>'+s.score+'</td><td class="l">'+(s.confidence||'')+' / '+(s.rs||'')+'</td>'+
       '<td>'+pr(s.entry)+'</td><td>'+pr(s.stop)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(s.t1)+'</td><td>'+pr(s.t2)+'</td>'+
       '<td class="neg">'+risk+'%</td><td class="pos">+'+rew+'%</td><td class="l">'+(s.fii_status||'')+'</td></tr>';}).join('');

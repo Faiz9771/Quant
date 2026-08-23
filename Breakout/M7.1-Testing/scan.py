@@ -192,6 +192,52 @@ def get_universe_symbols(universe: str = DEFAULT_UNIVERSE) -> list[str]:
     return syms
 
 
+# NSE's own market-cap segmentation (the basis for the Nifty 100 / Midcap 150 /
+# Smallcap 250 family): ranks 1-100 are large cap, 101-250 mid cap, 251-500 small
+# cap. We classify a stock by which index it actually belongs to rather than by
+# its turnover rank inside whatever happened to be scanned — the latter labelled
+# the biggest half of a Midcap 150 scan "LARGECAP", which then drove the
+# half-size-midcap sizing rule off a meaningless split.
+SEGMENT_BY_UNIVERSE = {
+    "nifty50": "LARGECAP",
+    "next50": "LARGECAP",          # Nifty 50 + Next 50 == Nifty 100 == large cap
+    "midcap150": "MIDCAP",
+    "smallcap250": "SMALLCAP",
+}
+_SEGMENTS: dict | None = None
+
+
+def market_cap_segments() -> dict:
+    """Ticker ("RELIANCE.NS") -> "LARGECAP" / "MIDCAP" / "SMALLCAP" per NSE.
+
+    Built from the same cached constituent lists the scanner already uses, so it
+    costs nothing extra on a warm cache. Memoised for the life of the process.
+    """
+    global _SEGMENTS
+    if _SEGMENTS is None:
+        seg = {}
+        for uni, label in SEGMENT_BY_UNIVERSE.items():
+            try:
+                for tk in get_universe_symbols(uni):
+                    seg.setdefault(tk, label)
+            except Exception as e:
+                log(f"[WARN] segment map: {uni} unavailable ({e}).")
+        _SEGMENTS = seg
+    return _SEGMENTS
+
+
+def segment_of(ticker: str, turnover_largecap=None) -> str:
+    """Segment for one ticker. Falls back to the old turnover-rank heuristic only
+    for names outside the Nifty 500 (nothing we scan today, but keeps the column
+    populated if a universe is ever added outside that family)."""
+    seg = market_cap_segments().get(ticker)
+    if seg:
+        return seg
+    if turnover_largecap is not None:
+        return "LARGECAP" if ticker in turnover_largecap else "MIDCAP"
+    return "MIDCAP"
+
+
 def get_nifty50_symbols() -> list[str]:
     """Back-compat shim: the Nifty 50 universe."""
     return get_universe_symbols("nifty50")
@@ -626,7 +672,7 @@ def _scan_one_stock(tk):
             stop_pct=res.get("StopPct"), t1_pct=res.get("T1Pct"),
             rs=res.get("RS"), confidence=res.get("Confidence"),
             fii_status=res.get("FIIstatus"), base_height=res.get("BaseHeight"),
-            mkt=("LARGECAP" if tk in largecap else "MIDCAP"),
+            mkt=segment_of(tk, largecap),
             whip=bool(reason == "stop" and pct < 0 and tdays <= 7),
             days_held=int(tdays),
             nifty_above_9ema=above9, nifty_above_25ema=above25, nifty_above_50ema=above50,
@@ -801,7 +847,7 @@ def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UN
                 verdict=res["Verdict"], score=res["Score"], rs=res.get("RS"),
                 confidence=res.get("Confidence"), fii_status=res.get("FIIstatus"),
                 base_height=res.get("BaseHeight"),
-                mkt=("LARGECAP" if tk in largecap else "MIDCAP"),
+                mkt=segment_of(tk, largecap),
                 atr_pct=(round(sn.atr / res["Entry"], 4) if (sn.atr == sn.atr and res["Entry"]) else None),
                 nifty_above_9ema=a9, nifty_above_25ema=a25, nifty_above_50ema=a50,
             ))
