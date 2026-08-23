@@ -60,19 +60,46 @@ def log(*a):
 # the NIFTY 50 index (^NSEI) for every universe, so results are directly comparable.
 UNIVERSES = {
     "nifty50": dict(
-        label="Nifty 50",
+        label="Nifty 50", size=50,
+        nse="ind_nifty50list.csv",
         wiki="https://en.wikipedia.org/wiki/NIFTY_50",
         cache="nifty50_list.json",
         fallback="NIFTY50",
     ),
     "next50": dict(
-        label="Nifty Next 50",
+        label="Nifty Next 50", size=50,
+        nse="ind_niftynext50list.csv",
         wiki="https://en.wikipedia.org/wiki/NIFTY_Next_50",
         cache="next50_list.json",
         fallback="NIFTYNEXT50",
     ),
+    "midcap150": dict(
+        label="Nifty Midcap 150", size=150,
+        nse="ind_niftymidcap150list.csv",
+        wiki=None,                       # Wikipedia has no constituent table for this one
+        cache="midcap150_list.json",
+        fallback="NIFTYMIDCAP150",
+    ),
+    "smallcap250": dict(
+        label="Nifty Smallcap 250", size=250,
+        nse="ind_niftysmallcap250list.csv",
+        wiki=None,
+        cache="smallcap250_list.json",
+        fallback="NIFTYSMALLCAP250",
+    ),
 }
 DEFAULT_UNIVERSE = "nifty50"
+
+# NSE publishes the authoritative, always-current constituent list of every index
+# as a CSV here. This is the primary source for all universes (Wikipedia only has
+# tables for Nifty 50 / Next 50, and 403s from cloud IPs).
+NSE_INDEX_CSV = "https://nsearchives.nseindia.com/content/indices/{file}"
+_NSE_HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+                   "(KHTML, like Gecko) Chrome/120.0 Safari/537.36"),
+    "Accept": "text/csv,application/csv,*/*",
+    "Referer": "https://www.nseindia.com/",
+}
 
 
 def normalize_universe(universe: str | None) -> str:
@@ -85,13 +112,47 @@ def universe_label(universe: str | None) -> str:
     return UNIVERSES[normalize_universe(universe)]["label"]
 
 
+def _plausible_size(n: int, size: int) -> bool:
+    """Constituent counts drift slightly between NSE rebalances; allow +/-15%."""
+    return round(size * 0.85) <= n <= round(size * 1.15)
+
+
+def _symbols_from_nse(spec) -> list[str] | None:
+    """Live constituents from NSE's official index CSV (Company,Industry,Symbol,...)."""
+    import requests
+    r = requests.get(NSE_INDEX_CSV.format(file=spec["nse"]), headers=_NSE_HEADERS, timeout=30)
+    r.raise_for_status()
+    df = pd.read_csv(io.StringIO(r.text))
+    col = next((c for c in df.columns if str(c).strip().lower() == "symbol"), None)
+    if col is None:
+        return None
+    syms = [str(x).strip().upper() for x in df[col].dropna() if str(x).strip()]
+    syms = list(dict.fromkeys(syms))
+    return syms if _plausible_size(len(syms), spec["size"]) else None
+
+
+def _symbols_from_wikipedia(spec) -> list[str] | None:
+    """Secondary source: the Wikipedia constituent table (Nifty 50 / Next 50 only)."""
+    if not spec.get("wiki"):
+        return None
+    for t in pd.read_html(spec["wiki"]):
+        sym_col = next((c for c in t.columns if "symbol" in str(c).lower()), None)
+        if sym_col is None:
+            continue
+        s = [str(x).strip().upper() for x in t[sym_col].dropna()]
+        s = [x for x in s if x.replace("-", "").replace("&", "").isalnum()]
+        if _plausible_size(len(s), spec["size"]):
+            return s
+    return None
+
+
 def get_universe_symbols(universe: str = DEFAULT_UNIVERSE) -> list[str]:
     """Constituents of the chosen index universe as yfinance tickers (.NS).
 
-    Cached to disk per-universe for 30 days: Wikipedia 403s from cloud IPs, so
-    hitting it on every scan added latency and flakiness. We reuse a fresh cache,
-    only refetch when stale, and cache even the bundled fallback so a 403 doesn't
-    re-fire each scan for a month.
+    Source order: NSE's official index CSV -> Wikipedia -> bundled fallback list.
+    Cached to disk per-universe for 30 days, because the remote sources are slow
+    and occasionally block cloud IPs. We cache even a fallback result so a blocked
+    fetch doesn't re-fire on every scan for a month.
     """
     import json as _json
     universe = normalize_universe(universe)
@@ -107,20 +168,20 @@ def get_universe_symbols(universe: str = DEFAULT_UNIVERSE) -> list[str]:
         pass
 
     syms = None
-    try:
-        for t in pd.read_html(spec["wiki"]):
-            sym_col = next((c for c in t.columns if "symbol" in str(c).lower()), None)
-            if sym_col is not None:
-                s = [str(x).strip().upper() for x in t[sym_col].dropna()]
-                s = [x for x in s if x.isalnum() or "&" in x]
-                if 40 <= len(s) <= 55:
-                    syms = [f"{x}.NS" for x in s]
-                    break
-    except Exception as e:
-        log(f"[WARN] Wikipedia fetch failed ({e}); using bundled fallback list ({universe}).")
+    for name, fetch in (("NSE", _symbols_from_nse), ("Wikipedia", _symbols_from_wikipedia)):
+        try:
+            got = fetch(spec)
+        except Exception as e:
+            log(f"[WARN] {name} constituents fetch failed for {universe} ({e}).")
+            continue
+        if got:
+            log(f"[INFO] {universe}: {len(got)} constituents from {name}.")
+            syms = [f"{x}.NS" for x in got]
+            break
 
     if not syms:
         import nifty_fallback
+        log(f"[WARN] using bundled fallback constituent list for {universe}.")
         syms = [f"{s}.NS" for s in getattr(nifty_fallback, spec["fallback"])]
 
     try:
@@ -575,12 +636,23 @@ def _scan_one_stock(tk):
     return tk, rows
 
 
+def _announce_total(progress, n):
+    """Tell a progress callback how many stocks this scan will cover. Tolerates
+    callbacks that only accept the ticker (the pre-existing 1-arg protocol)."""
+    if not progress:
+        return
+    try:
+        progress(None, total=n)
+    except TypeError:
+        pass
+
+
 def scan_signals(start_date: str, end_date: str, progress=None, universe: str = DEFAULT_UNIVERSE):
     """
     Pure opportunity scan, DECOUPLED from money-management.
 
     Runs the full M7.1 checklist on every constituent of the chosen `universe`
-    (Nifty 50 or Nifty Next 50) for every trading day
+    (Nifty 50 / Next 50 / Midcap 150 / Smallcap 250) for every trading day
     in the EXACT date range [start_date, end_date] (YYYY-MM-DD) and returns one record
     per DISTINCT trade opportunity (BUY / BUY STARTER), with its forward-resolved exit
     already computed. Unlike scan_and_simulate(), it does NOT apply slots / capital /
@@ -637,6 +709,7 @@ def scan_signals(start_date: str, end_date: str, progress=None, universe: str = 
     # Serial by default: on the throttled micro VM (burstable vCPUs + 498MB)
     # multiprocessing is SLOWER (CPU steal + memory contention). Set
     # M71_SCAN_WORKERS=2+ only on a box with real, dedicated cores and RAM.
+    _announce_total(progress, len(stock_items))
     workers = int(os.environ.get("M71_SCAN_WORKERS", "1"))
     use_par = workers > 1 and len(stock_items) > 1
     if use_par:
@@ -710,6 +783,7 @@ def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UN
         return a9, a25, a50
 
     out = []
+    _announce_total(progress, len(stock_items))
     for tk, df in stock_items:
         i = len(df) - 1
         if i < 220:
@@ -817,25 +891,33 @@ def live_quotes(syms):
     return out
 
 
-def _run_job(out_path, status_path, fn, *args):
+def _run_job(out_path, status_path, fn, *args, total=50):
     """Run a heavy scan `fn(*args, progress=...)` in THIS (child) process, writing
     incremental progress to status_path and the final {meta,signals} payload to
     out_path. app.py spawns this as a subprocess so the web worker never blocks on
     the CPU-bound checklist. Status file lifecycle: running -> (out_path written) ->
     done, or -> error with a message."""
     from pathlib import Path as _P
-    state = {"n": 0}
+    # `total` starts at a placeholder and is replaced by the real constituent count
+    # as soon as the scanner announces it — universes range from 50 to 250 stocks,
+    # so a hardcoded 50 would drive the progress bar past 100%.
+    state = {"n": 0, "total": max(1, int(total))}
 
     def _wp(status, **extra):
         try:
             _P(status_path).write_text(json.dumps(
-                {"status": status, "done": state["n"], "total": 50, **extra}))
+                {"status": status, "done": state["n"], "total": state["total"], **extra}))
         except Exception:
             pass
 
-    def progress(_tk):
+    def progress(_tk=None, total=None):
+        if total is not None:                 # scanner announcing the universe size
+            state["total"] = max(1, int(total))
+            _wp("running")
+            return
         state["n"] += 1
-        if state["n"] % 2 == 0 or state["n"] >= 49:   # throttle disk writes
+        step = max(1, state["total"] // 25)   # ~25 disk writes per scan, any size
+        if state["n"] % step == 0 or state["n"] >= state["total"]:
             _wp("running")
 
     try:
@@ -851,15 +933,17 @@ def _run_job(out_path, status_path, fn, *args):
 def run_range_job(start, end, out_path, status_path, universe=DEFAULT_UNIVERSE):
     """Subprocess entry: full date-range opportunity scan -> out_path."""
     from functools import partial
-    fn = partial(scan_signals, universe=normalize_universe(universe))
-    _run_job(out_path, status_path, fn, start, end)
+    universe = normalize_universe(universe)
+    fn = partial(scan_signals, universe=universe)
+    _run_job(out_path, status_path, fn, start, end, total=UNIVERSES[universe]["size"])
 
 
 def run_live_job(asof, out_path, status_path, universe=DEFAULT_UNIVERSE):
     """Subprocess entry: live 'today' watchlist scan -> out_path."""
     from functools import partial
-    fn = partial(live_scan, universe=normalize_universe(universe))
-    _run_job(out_path, status_path, fn, asof)
+    universe = normalize_universe(universe)
+    fn = partial(live_scan, universe=universe)
+    _run_job(out_path, status_path, fn, asof, total=UNIVERSES[universe]["size"])
 
 
 def _log_block(ledger, res, d, status, realized):

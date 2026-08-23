@@ -378,7 +378,8 @@ tbody tr:last-child td{border-bottom:0}
 <main class="wrap">
 <div class="pagehead">
   <h1>Live strategy scanner &amp; locked-capital simulator</h1>
-  <p class="sub">Runs the real M7.1 checklist over Nifty 50 or Nifty Next 50 for every trading day in
+  <p class="sub">Runs the real M7.1 checklist over Nifty 50, Nifty Next 50, Nifty Midcap 150 or Nifty Smallcap 250
+  for every trading day in
   your date range — live MoneyControl FII layer included — then simulates your locked-capital rule on the
   result. Scans are cached; capital, slots and sizing recompute instantly.</p>
 </div>
@@ -387,13 +388,15 @@ tbody tr:last-child td{border-bottom:0}
 <div class="view on" id="v-sim">
   <div class="panel">
     <p class="ph"><span>Scan window</span><span id="scanMeta"></span></p>
-    <div class="ctl-row"><label>Universe to scan<small>which index constituents the M7.1 checklist runs on</small></label>
+    <div class="ctl-row"><label>Universe to scan<small>which index constituents the M7.1 checklist runs on · bigger universes take proportionally longer to scan</small></label>
       <div class="inline">
         <select class="yr" id="universeSel" style="width:200px">
           <option value="nifty50">Nifty 50</option>
           <option value="next50">Nifty Next 50</option>
+          <option value="midcap150">Nifty Midcap 150</option>
+          <option value="smallcap250">Nifty Smallcap 250</option>
         </select>
-        <small style="color:var(--mid)">benchmark &amp; regime stay NIFTY 50 for both</small>
+        <small style="color:var(--mid)">benchmark &amp; regime stay NIFTY 50 for all</small>
       </div><div></div></div>
     <div class="ctl-row"><label>Date range to scan<small>exact dates · SMA200/RS get a 1-yr lead-in</small></label>
       <div class="inline">
@@ -506,9 +509,11 @@ tbody tr:last-child td{border-bottom:0}
     <code>BUY</code> / <code>BUY STARTER</code> right now — your actionable watchlist with entry, stop &amp; targets. These are
     open signals (no exit yet), ranked by score.</p>
     <div class="inline">
-      <select class="yr" id="universeSelLive" style="width:170px">
+      <select class="yr" id="universeSelLive" style="width:200px">
         <option value="nifty50">Nifty 50</option>
         <option value="next50">Nifty Next 50</option>
+        <option value="midcap150">Nifty Midcap 150</option>
+        <option value="smallcap250">Nifty Smallcap 250</option>
       </select>
       <button class="runbtn" id="liveBtn">Run live scan</button>
       <button class="ghost" id="liveRefresh" title="Ignore cache &amp; re-download">Force refresh</button>
@@ -1029,7 +1034,8 @@ function setStatus(msg,cls){const el=document.getElementById('status');el.classN
 function sleep(ms){return new Promise(r=>setTimeout(r,ms))}
 async function getJSON(url){const r=await fetch(url);if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}
 
-const UNI_LABELS={nifty50:'Nifty 50',next50:'Nifty Next 50'};
+const UNI_LABELS={nifty50:'Nifty 50',next50:'Nifty Next 50',midcap150:'Nifty Midcap 150',smallcap250:'Nifty Smallcap 250'};
+const UNI_SIZES={nifty50:50,next50:50,midcap150:150,smallcap250:250};
 let SCANNING=false;
 async function runScan(refresh){
   if(SCANNING)return;SCANNING=true;
@@ -1050,7 +1056,7 @@ async function runScan(refresh){
     while(data.status==='running'||data.status==='idle'){
       const pct=data.total?Math.round(100*data.done/data.total):10;
       setBar(pct);
-      setStatus('<span class="spin"></span>Scanning '+uniLbl+' · '+span+' — '+(data.done||0)+'/'+(data.total||50)+
+      setStatus('<span class="spin"></span>Scanning '+uniLbl+' · '+span+' — '+(data.done||0)+'/'+(data.total||UNI_SIZES[uni]||50)+
         ' stocks through the M7.1 checklist… (first run downloads prices + FII, can take a minute or two)');
       await sleep(1500);
       data=await getJSON('/api/status?start='+sd+'&end='+ed+'&universe='+uni);
@@ -1101,7 +1107,7 @@ async function runLiveScan(refresh){
     let polls=0;
     while(data.status==='running'||data.status==='idle'){
       const pct=data.total?Math.round(100*data.done/data.total):10;setBar(pct);
-      setLiveStatus('<span class="spin"></span>Scanning '+uniLbl+'… '+(data.done||0)+'/'+(data.total||50)+' stocks');
+      setLiveStatus('<span class="spin"></span>Scanning '+uniLbl+'… '+(data.done||0)+'/'+(data.total||UNI_SIZES[uni]||50)+' stocks');
       await sleep(1500);data=await getJSON('/api/live_status?'+uq);if(++polls>800)throw new Error('timed out');
     }
     if(data.status==='error')throw new Error(data.error||'live scan error');

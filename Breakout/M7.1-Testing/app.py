@@ -181,6 +181,12 @@ def _uni_prefix(universe: str) -> str:
     return "" if universe == scanner.DEFAULT_UNIVERSE else f"{universe}_"
 
 
+def _uni_size(universe: str) -> int:
+    """Constituent count of a universe (50 / 150 / 250), used as the progress-bar
+    denominator until the child process reports the real, post-download count."""
+    return int(scanner.UNIVERSES[scanner.normalize_universe(universe)].get("size", 50))
+
+
 def _range_key(sd: str, ed: str, universe: str = scanner.DEFAULT_UNIVERSE) -> str:
     return f"{_uni_prefix(universe)}{sd}_{ed}"
 
@@ -193,7 +199,7 @@ def _job_status_path(key: str) -> Path:
     return CACHE_DIR / f"_job_{key}.json"
 
 
-def _spawn_scan(key: str, runner_call: str):
+def _spawn_scan(key: str, runner_call: str, total: int = 50):
     """Start the heavy scan in a child process (idempotent per key). `runner_call`
     is a scan.* call that writes the result to the cache file and progress to the
     job-status file. Re-spawning while one is alive is a no-op."""
@@ -201,7 +207,7 @@ def _spawn_scan(key: str, runner_call: str):
         p = _procs.get(key)
         if p and p.poll() is None:
             return
-        _job_status_path(key).write_text(json.dumps({"status": "running", "done": 0, "total": 50}))
+        _job_status_path(key).write_text(json.dumps({"status": "running", "done": 0, "total": total}))
         _procs[key] = subprocess.Popen([sys.executable, "-c", f"import scan; {runner_call}"],
                                        cwd=str(HERE))
 
@@ -219,7 +225,7 @@ def _read_job_status(key: str, cache_path: Path) -> dict:
         try:
             st = json.loads(sp.read_text())
         except Exception:
-            return {"status": "running", "done": 0, "total": 50}
+            return {"status": "running", "done": 0, "total": 0}
         if st.get("status") == "running":
             p = _procs.get(key)
             if p is not None and p.poll() is not None:   # child died without writing a result
@@ -256,8 +262,8 @@ def api_scan():
             path.unlink()
         key = _range_key(sd, ed, uni)
         _spawn_scan(key, f"scan.run_range_job({sd!r}, {ed!r}, {str(path)!r}, "
-                         f"{str(_job_status_path(key))!r}, {uni!r})")
-        return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
+                         f"{str(_job_status_path(key))!r}, {uni!r})", total=_uni_size(uni))
+        return jsonify({"status": "running", "key": key, "done": 0, "total": _uni_size(uni)})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
@@ -289,8 +295,8 @@ def api_live():
             path.unlink()
         key = f"live_{_uni_prefix(uni)}{asof}"
         _spawn_scan(key, f"scan.run_live_job({asof!r}, {str(path)!r}, "
-                         f"{str(_job_status_path(key))!r}, {uni!r})")
-        return jsonify({"status": "running", "key": key, "done": 0, "total": 50})
+                         f"{str(_job_status_path(key))!r}, {uni!r})", total=_uni_size(uni))
+        return jsonify({"status": "running", "key": key, "done": 0, "total": _uni_size(uni)})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"status": "error", "error": str(e)}), 500
