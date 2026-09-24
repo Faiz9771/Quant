@@ -213,6 +213,9 @@ tbody tr:last-child td{border-bottom:0}
 .tag.L{background:var(--redSoft);color:var(--red);border-color:#4a1c1c}
 .tag.B{background:var(--accentSoft);color:var(--accent);border-color:#173a63}
 .tag.F{background:#1d1607;color:var(--gold);border-color:#4a3a12}
+.tag.OK{background:var(--greenSoft);color:var(--green);border-color:#1c4a30}
+.tag.VOID{background:var(--redSoft);color:var(--red);border-color:#4a1c1c}
+.tag.WAIT{background:var(--accentSoft);color:var(--accent);border-color:#173a63}
 .pill{display:inline-block;font-family:var(--mono);font-size:9.5px;font-weight:700;padding:2px 7px;
   border-radius:2px;background:var(--sunk);color:var(--mut);margin-left:7px;text-transform:uppercase;
   letter-spacing:.5px;border:1px solid var(--border2)}
@@ -463,7 +466,7 @@ tbody tr:last-child td{border-bottom:0}
   <div class="panel"><p class="ph"><span>Trade ledger</span><span><span id="ledgerTag"></span>
     <button class="ghost" id="copyLedger" style="padding:3px 9px;font-size:11px;margin-left:8px">Copy CSV</button>
     <button class="ghost" id="dlLedger" style="padding:3px 9px;font-size:11px">Download CSV</button></span></p>
-    <div class="scroll"><table id="ledger" style="min-width:1180px"><thead><tr><th class="l">Ticker</th><th class="l">Seg</th><th class="l">NIFTY@entry</th><th>Entry date</th><th>Exit date</th><th>Days held</th><th>Entry ₹</th><th>Stop ₹</th><th>Target ₹</th><th>Exit ₹</th><th>Points</th><th>P/L%</th><th>Capital put</th><th>Returned</th><th>Equity</th><th class="l">Status</th></tr></thead><tbody></tbody></table></div>
+    <div class="scroll"><table id="ledger" style="min-width:1280px"><thead><tr><th class="l">Ticker</th><th class="l">Seg</th><th class="l">NIFTY@entry</th><th>Signal date</th><th>Entry date</th><th>Exit date</th><th>Days held</th><th>Entry ₹ (next open)</th><th>Stop ₹</th><th>Target ₹</th><th>Exit ₹</th><th>Points</th><th>P/L%</th><th>Capital put</th><th>Returned</th><th>Equity</th><th class="l">Status</th></tr></thead><tbody></tbody></table></div>
   </div>
   <div class="panel"><p class="ph"><span>Daily activity · entries, exits &amp; open positions</span><span id="dailyTag"></span></p>
     <div class="scroll"><table id="daily"><thead><tr><th class="l">Date</th><th>Entered</th><th>Exited</th><th>Open (end of day)</th><th>Capital deployed</th></tr></thead><tbody></tbody></table></div>
@@ -505,9 +508,15 @@ tbody tr:last-child td{border-bottom:0}
 <div class="view" id="v-live">
   <div class="panel">
     <p class="ph"><span>Live scan · today's M7.1 signals on the latest bar</span><span id="liveMeta"></span></p>
-    <p class="sub" style="margin-bottom:12px">Runs the full checklist on the <b>most recent available bar</b> of every stock in the selected universe and lists what fires a
-    <code>BUY</code> / <code>BUY STARTER</code> right now — your actionable watchlist with entry, stop &amp; targets. These are
-    open signals (no exit yet), ranked by score.</p>
+    <p class="sub" style="margin-bottom:12px">Runs the full checklist on the <b>last completed session</b> of every stock in the selected universe and lists what fires a
+    <code>BUY</code> / <code>BUY STARTER</code> — your actionable watchlist with fill, stop &amp; targets, ranked by score.
+    Scan it at any hour: while the market is open, today's bar is still forming (its "close" is just the last trade
+    and its volume is partial), so <b>the decision is always made on yesterday's close</b> — after 16:15 IST today's
+    close becomes the decision bar.
+    The fill is the <b>next session's open</b>, and each row carries a pill saying whether that open still supports the
+    signal: <span class="tag OK">STILL VALID</span> with the gap it cost you,
+    <span class="tag VOID">VOID</span> if it opened at or through the stop (setup dead — don't enter), or
+    <span class="tag WAIT">AWAITING OPEN</span> before the bell. The backtest fills on exactly this same rule.</p>
     <div class="inline">
       <select class="yr" id="universeSelLive" style="width:200px">
         <option value="nifty50">Nifty 50</option>
@@ -521,9 +530,10 @@ tbody tr:last-child td{border-bottom:0}
     <div class="bar" id="liveProg" style="display:none"><i></i></div>
     <div class="status" id="liveStatus"></div>
     <div id="liveRegime" style="margin-top:12px"></div>
-    <div class="scroll" style="margin-top:12px"><table id="liveTable" style="min-width:1280px"><thead><tr>
+    <div class="scroll" style="margin-top:12px"><table id="liveTable" style="min-width:1520px"><thead><tr>
       <th class="l">Ticker</th><th class="l">Seg</th><th class="l">NIFTY@today</th><th class="l">Verdict</th><th>Score</th>
-      <th class="l">Conf / RS</th><th>Entry ₹</th><th>Stop ₹ (signal)</th><th>ATR stop ₹ (2×ATR)</th><th>ATR%</th><th>Target1 ₹</th><th>Target2 ₹</th>
+      <th class="l">Conf / RS</th><th>Signal close ₹</th><th class="l">Still valid?</th><th>Fill @ open ₹</th><th>Gap%</th>
+      <th>Stop ₹ (signal)</th><th>ATR stop ₹ (2×ATR)</th><th>ATR%</th><th>Target1 ₹</th><th>Target2 ₹</th>
       <th>Risk%</th><th>Reward%</th><th class="l">FII</th></tr></thead><tbody></tbody></table></div>
   </div>
   <div class="panel">
@@ -535,7 +545,10 @@ tbody tr:last-child td{border-bottom:0}
     <div class="scroll" style="margin-top:12px"><table id="trackTable" style="min-width:1440px"><thead><tr>
       <th class="l">Ticker</th><th>Tracked@ ₹</th><th class="l">Capital ₹</th><th>Qty</th><th>Stop ₹</th><th>ATR stop @entry ₹</th><th>Target1 ₹</th>
       <th>Live ₹</th><th>Live ATR%</th><th>Live ATR stop ₹</th><th>P/L %</th><th>P/L ₹</th><th class="l">Live date</th><th></th></tr></thead><tbody></tbody></table></div>
-    <p class="note">Dragging a signal here means you've taken it — its capital is locked. The live columns update when you press <b>↻ Live prices</b>; the <b>Live ATR stop</b> = live price − 2×ATR(14) on the latest bar, so it moves as price &amp; volatility change.</p>
+    <p class="note"><b>Tracked@ ₹ prefills with the signal close, which is not your fill</b> — the signal
+      fired on that close, so you buy at the next session's open. Type the price you actually got and
+      <b>Target1 rebases automatically</b> off the same measured move (the stop is a structural level and
+      stays put, so a gap up really does widen your risk). Dragging a signal here means you've taken it — its capital is locked. The live columns update when you press <b>↻ Live prices</b>; the <b>Live ATR stop</b> = live price − 2×ATR(14) on the latest bar, so it moves as price &amp; volatility change.</p>
   </div>
 </div>
 
@@ -543,8 +556,10 @@ tbody tr:last-child td{border-bottom:0}
 <div class="view" id="v-signals">
   <div class="panel"><p class="ph"><span>Every Buy verdict from the live scan</span><span id="sigCount"></span></p>
     <p class="sub" style="margin-bottom:10px">The raw opportunity set the simulator draws from — one row per distinct
-    M7.1 <code>BUY</code> / <code>BUY STARTER</code>, with its forward-resolved exit. Slots &amp; capital decide which get booked.</p>
-    <div class="scroll"><table id="sigTable" style="min-width:1340px"><thead><tr><th class="l">Ticker</th><th class="l">Seg</th><th class="l">NIFTY@entry</th><th class="l">Verdict</th><th>Score</th><th>Entry date</th><th>Entry ₹</th><th>Stop ₹ (signal)</th><th>ATR stop ₹ (2×ATR)</th><th>ATR%</th><th>Target ₹</th><th>Exit date</th><th>Exit ₹</th><th>Points</th><th>P/L%</th><th class="l">Exit reason</th></tr></thead><tbody></tbody></table></div>
+    M7.1 <code>BUY</code> / <code>BUY STARTER</code>, with its forward-resolved exit. Slots &amp; capital decide which get booked.
+    Signals fire on a bar's <b>close</b>; every trade is filled at the <b>next session's open</b> and the exit search starts
+    on that entry bar, so day-one gaps and stop-outs are counted.</p>
+    <div class="scroll"><table id="sigTable" style="min-width:1460px"><thead><tr><th class="l">Ticker</th><th class="l">Seg</th><th class="l">NIFTY@entry</th><th class="l">Verdict</th><th>Score</th><th>Signal date</th><th>Entry date</th><th>Entry ₹ (next open)</th><th>Stop ₹ (signal)</th><th>ATR stop ₹ (2×ATR)</th><th>ATR%</th><th>Target ₹</th><th>Exit date</th><th>Exit ₹</th><th>Points</th><th>P/L%</th><th class="l">Exit reason</th></tr></thead><tbody></tbody></table></div>
   </div>
 </div>
 
@@ -889,7 +904,7 @@ function _csvCell(v){v=String(v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""'
 function ledgerCSV(){
   const r=LASTRUN;if(!r)return '';
   const head=['Ticker','Segment','Status','Verdict','Score','RS','Confidence','FIIstatus',
-    'EntryDate','ExitDate','DaysHeld','ExitReason','EntryPrice','StopPrice','EffStopPct','TargetPrice','Target1Pct',
+    'SignalDate','EntryDate','ExitDate','DaysHeld','ExitReason','EntryPrice','EntryGapPct','StopPrice','EffStopPct','TargetPrice','Target1Pct',
     'ExitPrice','Points','SignalPct','AppliedPct','NIFTY_above_9EMA','NIFTY_above_25EMA','NIFTY_above_50EMA',
     'RegimeBasisUsed','RegimeLabel','ATR_pct','Whip','CapitalPut','CapitalReturned','PnL_Rs','EquityAfter'];
   const lines=[head.join(',')];
@@ -904,8 +919,8 @@ function ledgerCSV(){
     const row=[
       t.ticker, t.mkt||'', tags[t.status]||t.status, t.verdict||'', (t.score!=null?t.score:''),
       t.rs||'', t.confidence||'', t.fii_status||'',
-      t.entry||'', taken?(t.exit||''):'', (taken&&heldDays(t)!=null?heldDays(t):''), t.reason||'',
-      _num2(ep), _num2(stopPx), (t.entryPx!=null?(-sp*100).toFixed(2):''), _num2(tgtPx), (t.t1Pct!=null?(+t.t1Pct).toFixed(2):''),
+      t.signal||'', t.entry||'', taken?(t.exit||''):'', (taken&&heldDays(t)!=null?heldDays(t):''), t.reason||'',
+      _num2(ep), (t.gapPct!=null?(+t.gapPct).toFixed(2):''), _num2(stopPx), (t.entryPx!=null?(-sp*100).toFixed(2):''), _num2(tgtPx), (t.t1Pct!=null?(+t.t1Pct).toFixed(2):''),
       taken?_num2(xp):'', _num2(pts), (t.pct!=null?(+t.pct).toFixed(2):''), taken?(+t.plShown).toFixed(2):'',
       _bool(t.above9), _bool(t.above25), _bool(t.above50), cfg.regimeBasis, regimeText(t),
       (t.atrPct!=null?(t.atrPct*100).toFixed(2):''), _bool(t.whip),
@@ -959,7 +974,7 @@ function drawLedger(r){document.querySelector('#ledger tbody').innerHTML=r.led.m
   const ptsTxt=pts==null?'—':((pts>=0?'+':'')+pts.toFixed(2));
   const seg=segTag(t.mkt);
   return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+seg+'</td><td class="l">'+regimeBadge(t)+'</td>'+
-    '<td>'+(t.entry||'')+'</td><td>'+(taken?(t.exit||''):'—')+'</td><td>'+(taken?(heldDays(t)!=null?heldDays(t):'—'):'—')+'</td>'+
+    '<td>'+(t.signal||'')+'</td><td>'+(t.entry||'')+'</td><td>'+(taken?(t.exit||''):'—')+'</td><td>'+(taken?(heldDays(t)!=null?heldDays(t):'—'):'—')+'</td>'+
     '<td>'+pr(ep)+'</td><td>'+pr(stopPx)+'</td><td>'+pr(tgtPx)+'</td><td>'+(taken?pr(xp):'—')+'</td>'+
     '<td class="'+(pts>=0?'pos':'neg')+'">'+ptsTxt+'</td>'+
     '<td class="'+(t.plShown>=0?'pos':'neg')+'">'+pl+'</td>'+
@@ -1014,7 +1029,7 @@ function renderSignals(){
     const atrTxt=(t.atrPct&&t.atrPct>0)?(t.atrPct*100).toFixed(2)+'%':'—';
     return '<tr><td class="l">'+t.ticker+'</td><td class="l">'+segTag(t.mkt)+'</td><td class="l">'+regimeBadge(t)+'</td>'+
       '<td class="l">'+t.verdict.replace('BUY STARTER','STARTER')+'</td><td>'+t.score+'</td>'+
-      '<td>'+t.entry+'</td><td>'+pr(t.entryPx)+'</td><td>'+pr(stopPx)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(tgtPx)+'</td>'+
+      '<td>'+(t.signal||'')+'</td><td>'+t.entry+'</td><td>'+pr(t.entryPx)+'</td><td>'+pr(stopPx)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(tgtPx)+'</td>'+
       '<td>'+t.exit+'</td><td>'+pr(t.exitPx)+'</td>'+
       '<td class="'+(pts>=0?'pos':'neg')+'">'+(pts>=0?'+':'')+pts.toFixed(2)+'</td>'+
       '<td class="'+(t.pct>=0?'pos':'neg')+'">'+(t.pct>=0?'+':'')+t.pct.toFixed(2)+'%</td>'+
@@ -1022,7 +1037,8 @@ function renderSignals(){
 
 // ---- scan fetching ----
 function mapSignals(raw){
-  return raw.map(s=>({ticker:s.sym,mkt:s.mkt,entry:s.entry_date,exit:s.exit_date,entryPx:s.entry,exitPx:s.exit,
+  return raw.map(s=>({ticker:s.sym,mkt:s.mkt,signal:(s.signal_date||s.entry_date),gapPct:s.gap_pct,
+    entry:s.entry_date,exit:s.exit_date,entryPx:s.entry,exitPx:s.exit,
     pct:s.pct,verdict:s.verdict,score:s.score,reason:s.reason,rs:s.rs,confidence:s.confidence,
     fii_status:s.fii_status,whip:!!s.whip,stopDist:s.stop_pct?Math.abs(s.stop_pct)/100:0.075,
     above9:s.nifty_above_9ema,above25:s.nifty_above_25ema,above50:s.nifty_above_50ema,
@@ -1121,23 +1137,50 @@ async function runLiveScan(refresh){
   }catch(e){setLiveStatus('Live scan failed: '+e.message+' — is the server running?','err')}
   finally{LIVESCANNING=false;btn.disabled=false;setTimeout(()=>{document.getElementById('liveProg').style.display='none';document.querySelector('#liveProg i').style.width='0'},800)}
 }
+// Next-open confirmation pill. The backend decides the status (same entry_plan() the
+// backtest fills on), so this only renders it — the pill can never disagree with the sim.
+function confirmPill(s){
+  const g=(s.gap_pct!=null)?((s.gap_pct>=0?'+':'')+s.gap_pct.toFixed(2)+'%'):'';
+  switch(s.confirm){
+    case 'confirmed':     return '<span class="tag OK">STILL VALID'+(g?' '+g:'')+'</span>';
+    case 'void-gap-stop': return '<span class="tag VOID" title="Opened at or through the stop — the setup is dead, do not enter">VOID · GAPPED THROUGH STOP</span>';
+    case 'void-gap-wide': return '<span class="tag VOID" title="Opened further above the signal close than the configured limit">VOID · GAP '+g+'</span>';
+    case 'awaiting-open': return '<span class="tag WAIT" title="The next session has not opened yet — your fill is that open">AWAITING OPEN</span>';
+    default:              return '<span class="tag WAIT">—</span>';
+  }
+}
 function renderLive(sigs,meta){
   document.getElementById('liveMeta').textContent=meta.asof+' · '+sigs.length+' signals';
   const both=meta.nifty_above_9ema&&meta.nifty_above_25ema;
+  const conf=(meta.n_confirmed!=null)?(meta.n_confirmed+' still valid at the open'+(meta.n_void?', '+meta.n_void+' voided by the gap':'')):'';
   document.getElementById('liveRegime').innerHTML='<div class="finding '+(both?'ok':'crit')+'"><b>NIFTY 50 @ '+meta.asof+': '+(meta.nifty_close||'')+
     '</b><p>vs 9 EMA: '+ynm(meta.nifty_above_9ema)+' · 25 EMA: '+ynm(meta.nifty_above_25ema)+' · 50 EMA: '+ynm(meta.nifty_above_50ema)+
-    ' — market is '+(both?'in an uptrend (9 & 25)':'not in a clean 9 & 25 uptrend')+'.</p></div>';
+    ' — market is '+(both?'in an uptrend (9 & 25)':'not in a clean 9 & 25 uptrend')+'.</p></div>'+
+    (meta.entry_note?'<div class="finding"><b>Decided on the '+(meta.signal_bar||meta.asof)+' close'+
+      (meta.market_open_now?' · market open now':'')+(meta.scanned_at_ist?' · scanned '+meta.scanned_at_ist:'')+
+      '</b><p>'+meta.entry_note+(conf?' <b>'+conf+'.</b>':'')+
+      (meta.n_stale?' '+meta.n_stale+' stock(s) skipped — their feed has not printed that bar.':'')+'</p></div>':'');
   LIVE=sigs;
   const tb=document.querySelector('#liveTable tbody');
-  if(!sigs.length){tb.innerHTML='<tr><td class="l" colspan="15">No BUY / BUY STARTER signals on the latest bar.</td></tr>';return}
+  if(!sigs.length){tb.innerHTML='<tr><td class="l" colspan="18">No BUY / BUY STARTER signals on the last completed session.</td></tr>';return}
   tb.innerHTML=sigs.map(s=>{
     const badge=regimeBadge({above9:s.nifty_above_9ema,above25:s.nifty_above_25ema,above50:s.nifty_above_50ema});
-    const risk=s.stop_pct!=null?Math.abs(s.stop_pct).toFixed(1):'—',rew=s.t1_pct!=null?s.t1_pct.toFixed(1):'—';
-    const atrStop=(s.atr_pct&&s.atr_pct>0)?s.entry*(1-2*s.atr_pct):null;
+    // once the open is known, risk/reward and targets are the ones off your ACTUAL fill
+    const sp=(s.stop_pct_at_open!=null)?s.stop_pct_at_open:s.stop_pct;
+    const tp=(s.t1_pct_at_open!=null)?s.t1_pct_at_open:s.t1_pct;
+    const t1=(s.t1_at_open!=null)?s.t1_at_open:s.t1, t2=(s.t2_at_open!=null)?s.t2_at_open:s.t2;
+    const risk=sp!=null?Math.abs(sp).toFixed(1):'—',rew=tp!=null?tp.toFixed(1):'—';
+    const px=(s.entry_at_open!=null)?s.entry_at_open:s.entry;
+    const atrStop=(s.atr_pct&&s.atr_pct>0)?px*(1-2*s.atr_pct):null;
     const atrTxt=(s.atr_pct&&s.atr_pct>0)?(s.atr_pct*100).toFixed(2)+'%':'—';
-    return '<tr draggable="true" data-sym="'+s.sym+'"><td class="l"><span class="addtrk" data-sym="'+s.sym+'" title="track this position">＋</span>'+s.sym+'</td><td class="l">'+segTag(s.mkt)+'</td><td class="l">'+badge+'</td>'+
+    const gapTxt=(s.gap_pct!=null)?((s.gap_pct>=0?'+':'')+s.gap_pct.toFixed(2)+'%'):'—';
+    const dead=(s.confirm&&s.confirm.indexOf('void')===0);
+    return '<tr draggable="'+(dead?'false':'true')+'" data-sym="'+s.sym+'"'+(dead?' style="opacity:.55"':'')+'><td class="l">'+
+      (dead?'':'<span class="addtrk" data-sym="'+s.sym+'" title="track this position">＋</span>')+s.sym+'</td><td class="l">'+segTag(s.mkt)+'</td><td class="l">'+badge+'</td>'+
       '<td class="l">'+s.verdict.replace('BUY STARTER','STARTER')+'</td><td>'+s.score+'</td><td class="l">'+(s.confidence||'')+' / '+(s.rs||'')+'</td>'+
-      '<td>'+pr(s.entry)+'</td><td>'+pr(s.stop)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(s.t1)+'</td><td>'+pr(s.t2)+'</td>'+
+      '<td>'+pr(s.entry)+'</td><td class="l">'+confirmPill(s)+'</td><td>'+(s.entry_at_open!=null?pr(s.entry_at_open):'—')+'</td>'+
+      '<td class="'+(s.gap_pct>=0?'pos':'neg')+'">'+gapTxt+'</td>'+
+      '<td>'+pr(s.stop)+'</td><td>'+pr(atrStop)+'</td><td>'+atrTxt+'</td><td>'+pr(t1)+'</td><td>'+pr(t2)+'</td>'+
       '<td class="neg">'+risk+'%</td><td class="pos">+'+rew+'%</td><td class="l">'+(s.fii_status||'')+'</td></tr>';}).join('');
 }
 
@@ -1167,8 +1210,18 @@ function atrStopEntryOf(t){                                  // manual override 
 const _INP='style="width:88px;font-family:monospace;font-size:12px;padding:3px 6px;border:1px solid var(--border2);border-radius:4px"';
 function addTracked(sym){
   const s=LIVE.find(x=>x.sym===sym);if(!s)return;
+  if(s.confirm&&s.confirm.indexOf('void')===0){
+    alert(s.sym+' is void — it opened at or through its stop, so the setup is dead. Not tracked.');return;}
   if(TRACKED.some(t=>t.sym===sym))return;  // already tracked
-  const t={sym:s.sym,mkt:s.mkt,entry:s.entry,stop:s.stop,t1:s.t1,t2:s.t2,
+  // Prefill with the real fill (today's open) once it is known; before the open all we
+  // have is the signal close, which is provisional. Either way the measured moves ride
+  // along so T1/T2 rebase the moment you type the price you actually got.
+  const known=(s.entry_at_open!=null);
+  const t={sym:s.sym,mkt:s.mkt,entry:(known?s.entry_at_open:s.entry),stop:s.stop,
+    t1:(known&&s.t1_at_open!=null?s.t1_at_open:s.t1),t2:(known&&s.t2_at_open!=null?s.t2_at_open:s.t2),
+    move1:(s.move1!=null?s.move1:(s.t1!=null&&s.entry!=null?s.t1-s.entry:null)),
+    move2:(s.move2!=null?s.move2:(s.t2!=null&&s.entry!=null?s.t2-s.entry:null)),
+    entryProvisional:!known,
     atrPctEntry:s.atr_pct,trackedDate:(s.date||new Date().toISOString().slice(0,10)),live:null};
   _uid(t);TRACKED.push(t);saveTracked();renderTracked();
 }
@@ -1227,6 +1280,15 @@ function updateTotals(){
   const pctE=document.getElementById('tot_pct');if(pctE){pctE.textContent=pct!=null?((pct>=0?'+':'')+pct.toFixed(2)+'%'):'—';pctE.className=(pct>=0?'pos':'neg');}
   const pnlE=document.getElementById('tot_pnl');if(pnlE){pnlE.textContent=priced?((pnl>=0?'+':'')+inr(pnl)):'—';pnlE.className=(pnl>=0?'pos':'neg');}
 }
+function rebaseTargets(t){
+  // Stop is a STRUCTURAL level (base low / SMA50) — it does not move with your fill.
+  // T1/T2 are measured moves off the entry, so they ride the actual fill price.
+  if(t.t1Manual||!t.entry||t.move1==null)return;
+  t.t1=+(t.entry+t.move1).toFixed(2);
+  if(t.move2!=null)t.t2=+(t.entry+t.move2).toFixed(2);
+  const el=document.querySelector('.t1in[data-uid="'+t.uid+'"]');
+  if(el&&document.activeElement!==el)el.value=t.t1;
+}
 function updateRowDerived(t){
   const u=t.uid;
   const qty=t.entry?Math.floor((t.capital||0)/t.entry):0;
@@ -1279,10 +1341,11 @@ document.getElementById('trackTable').addEventListener('input',e=>{
   const inp=e.target.closest('input[data-uid]');if(!inp)return;
   const t=TRACKED.find(x=>x.uid===inp.dataset.uid);if(!t)return;
   if(inp.classList.contains('symin')){t.sym=inp.value.trim().toUpperCase();saveTracked();return;}   // no re-render (keep focus); live cols fill on ↻
-  if(inp.classList.contains('entryin')){t.entry=+inp.value||0;saveTracked();updateRowDerived(t);return;}
+  if(inp.classList.contains('entryin')){t.entry=+inp.value||0;t.entryProvisional=false;
+    rebaseTargets(t);saveTracked();updateRowDerived(t);return;}
   if(inp.classList.contains('capin')){t.capital=+inp.value||0;saveTracked();updateRowDerived(t);return;}
   if(inp.classList.contains('stopin')){t.stop=+inp.value||0;saveTracked();return;}
-  if(inp.classList.contains('t1in')){t.t1=+inp.value||0;saveTracked();return;}
+  if(inp.classList.contains('t1in')){t.t1=+inp.value||0;t.t1Manual=true;saveTracked();return;}
   if(inp.classList.contains('atrsein')){t.atrStopEntry=(inp.value===''?null:(+inp.value||0));saveTracked();return;}
 });
 loadTracked();

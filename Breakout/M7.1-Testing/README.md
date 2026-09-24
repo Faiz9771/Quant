@@ -127,6 +127,54 @@ which trades get booked.
   win rate, avg win/loss, **days_scanned / days_skipped / scan_days_saved_pct**, and whether the
   FII layer ran live.
 
+## Execution model: signals close, fills open
+
+The M7.1 checklist is evaluated on a bar's **close**, so the signal does not exist until that
+session is already over — you cannot buy it. Every simulated trade is therefore filled at the
+**next session's open**:
+
+| | |
+|---|---|
+| `signal_date` | the bar whose close fired `BUY` / `BUY STARTER` |
+| `entry_date` | the following trading session |
+| `entry` | that session's **open** (the first price you could actually pay) |
+| exit search | starts **on the entry bar** — a day-one gap or intraday reversal can stop you out immediately |
+| stop | the structural level (base low − 1.5%, or SMA50) — unchanged by the gap, so a gap up genuinely widens your risk |
+| T1 / T2 | measured moves, **rebased onto the actual fill** (`fill + (T1 − signal close)`) |
+
+A signal is **not taken at all** when the open gaps at or through the stop (the setup is dead
+before you can be filled) or when the signal fires on the last bar of the data. Those show up as
+`BLOCK-no-fill` in the ledger and `signals_no_fill` in the summary.
+
+On Nifty 50 / calendar 2025 this costs roughly a fifth of a percent per trade in overnight gap
+(mean +0.21%, median +0.15%) and turns 13 trades into day-one stop-outs — average per-trade P&L
+falls from +0.55% to +0.34%. Anything you measured before this change was unbuyable.
+
+### The live watchlist decides on closed bars only
+
+Run a live scan at 11:00 and the feed's last daily row is *today's half-formed bar* — its "Close" is
+just the last trade and its volume is partial. Evaluating the checklist on that is meaningless, so
+`live_scan()` drops it: the decision bar is always the last **completed** session
+(`last_final_session`). Intraday that is yesterday's close; after **16:15 IST** (15:30 close + a
+45-minute settle, because NSE's official close is a 30-minute weighted average published ~15:40–16:00
+and free feeds lag) today's close takes over.
+
+Each signal then carries its next-open confirmation as a pill, decided by the *same* `entry_plan()`
+the backtest fills on — so the watchlist can never disagree with the simulator:
+
+| pill | meaning |
+|---|---|
+| `STILL VALID +0.31%` | today's open is a valid fill; `entry_at_open` / `t1_at_open` / `t2_at_open` are rebased onto it, and Risk%/Reward% are recomputed off your real fill |
+| `VOID · GAPPED THROUGH STOP` | it opened at or through the stop — the setup is dead, the row is dimmed and can't be tracked |
+| `VOID · GAP +x%` | it gapped further than `MAX_ENTRY_GAP_PCT` allows (only when you set that knob) |
+| `AWAITING OPEN` | scanned before the next session opened — your fill is still ahead of you |
+
+Confirmed rows sort above voided ones. Live results are cached per `decision_window`, so a watchlist
+taken during market hours is never replayed after today's close has printed.
+
+`ENTRY_MODEL` in `scan.py` versions these mechanics: the dashboard treats any scan cached under an
+older model as a miss and re-runs it, so stale look-ahead results are never served.
+
 ## Configure (top of `scan.py`)
 ```python
 START_YEAR     = 2021        # first year to scan (inclusive)
@@ -136,6 +184,8 @@ SLOTS          = 5           # max concurrent positions (O'Neil 4–5 concentrat
 SIZING         = "equal"     # "equal" cash slots, or "risk" (Van Tharp % risk-to-stop)
 RISK_PCT       = 1.0         # used when SIZING="risk"
 TIME_STOP_DAYS = 28          # Step 7-8 time stop: no new high in ~3–4 weeks -> exit
+ENTRY_ON          = "next_open"  # signals fire on the close; fills happen at the next open
+MAX_ENTRY_GAP_PCT = None         # e.g. 4.0 -> refuse fills that gap >4% above the signal close
 ```
 
 ## Data sources
@@ -154,5 +204,11 @@ TIME_STOP_DAYS = 28          # Step 7-8 time stop: no new high in ~3–4 weeks -
 - **Qualitative checklist rules are operationalised** with explicit thresholds (marked
   `# OPERATIONALISED` in `m71_checklist.py`) so the scan is reproducible. Tune them to match how
   you read the charts by hand — e.g. the "distribution" cluster rule and the liquidity floor.
+- **Fills are next-day opens, not next-day VWAP.** The open is the first executable price, but a
+  market order at the open pays spread and you may not get the printed open exactly. No slippage or
+  brokerage is modelled on top — budget for both before trusting the P&L.
+- **Trades near the end of a scan range resolve as `horizon`.** Prices are only downloaded to the
+  range end, so a signal in the last weeks exits at whatever the last bar shows rather than at its
+  real target/stop. Extend the end date past the period you actually want to measure.
 - **This finds candidates, not certainties.** Treat the signal list as the set of setups M7.1
   *would* have flagged, then eyeball the charts the way you did for your original 100 tests.

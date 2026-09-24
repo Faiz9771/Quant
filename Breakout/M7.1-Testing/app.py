@@ -195,6 +195,66 @@ def _cache_path(sd: str, ed: str, universe: str = scanner.DEFAULT_UNIVERSE) -> P
     return CACHE_DIR / f"signals_{_range_key(sd, ed, universe)}.json"
 
 
+def _cache_is_current(payload: dict) -> bool:
+    """True only if this cached scan was produced by the CURRENT execution model.
+
+    Scans cached before the next-open fill fix entered at the signal bar's CLOSE
+    (a price that was already unbuyable when the signal appeared), so their P&L is
+    not reproducible in real trading. Those files are treated as misses and re-run.
+    """
+    meta = (payload or {}).get("meta") or {}
+    return int(meta.get("entry_model", 0)) >= int(scanner.ENTRY_MODEL)
+
+
+_MODEL_RE = re.compile(rb'"entry_model"\s*:\s*(\d+)')
+
+
+def _cache_model_of(path: Path) -> int:
+    """Execution-model version of a cache file, read WITHOUT parsing it.
+
+    `meta` is written first and carries `entry_model` ahead of the big `nifty`
+    series, so the head of the file is enough — /api/cached scans ~50 files per
+    call and parsing them all would be megabytes of JSON on a 500MB box.
+    """
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8192)
+    except OSError:
+        return 0
+    m = _MODEL_RE.search(head)
+    return int(m.group(1)) if m else 0
+
+
+def _cache_is_fresh(path: Path) -> bool:
+    return _cache_model_of(path) >= int(scanner.ENTRY_MODEL)
+
+
+def _read_cache(path: Path):
+    """Load a cache file, or None if it is missing, unreadable, or stale."""
+    if not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text())
+    except Exception:
+        return None
+    return payload if _cache_is_current(payload) else None
+
+
+def _live_cache_in_window(payload: dict, asof: str) -> bool:
+    """A live watchlist decides on the last CLOSED session, so its answer changes when
+    today's close prints (16:15 IST). Scans for a past `asof` are deterministic and stay
+    valid forever; a scan for today is only valid within the window it was taken in.
+    """
+    # The server may run in UTC while the market (and `asof`) is on IST, so "is this
+    # today?" is judged against both clocks; only a date that is past on BOTH is frozen.
+    today = min(pd.Timestamp.today().strftime("%Y-%m-%d"),
+                scanner.now_ist().strftime("%Y-%m-%d"))
+    if asof < today:
+        return True
+    meta = (payload or {}).get("meta") or {}
+    return meta.get("decision_window") == scanner.decision_window()
+
+
 def _job_status_path(key: str) -> Path:
     return CACHE_DIR / f"_job_{key}.json"
 
@@ -215,11 +275,12 @@ def _spawn_scan(key: str, runner_call: str, total: int = 50):
 def _read_job_status(key: str, cache_path: Path) -> dict:
     """Resolve job state from disk so any worker can report it: a present cache
     file means done; otherwise the job-status file (running/error); else idle."""
-    if cache_path.exists():
+    payload = _read_cache(cache_path)
+    if payload is not None:
         p = _procs.get(key)
         if p is not None:
             p.poll()                 # reap the finished child (no zombies)
-        return {"status": "done", "cached": True, **json.loads(cache_path.read_text())}
+        return {"status": "done", "cached": True, **payload}
     sp = _job_status_path(key)
     if sp.exists():
         try:
@@ -255,11 +316,11 @@ def api_scan():
         uni = _universe()
         refresh = request.args.get("refresh", "0") in ("1", "true", "yes")
         path = _cache_path(sd, ed, uni)
-        if path.exists() and not refresh:
-            payload = json.loads(path.read_text())
+        payload = None if refresh else _read_cache(path)
+        if payload is not None:
             return jsonify({"status": "done", "cached": True, **payload})
-        if refresh and path.exists():
-            path.unlink()
+        if path.exists():
+            path.unlink()            # missing / stale (pre-next-open-fill) -> re-scan
         key = _range_key(sd, ed, uni)
         _spawn_scan(key, f"scan.run_range_job({sd!r}, {ed!r}, {str(path)!r}, "
                          f"{str(_job_status_path(key))!r}, {uni!r})", total=_uni_size(uni))
@@ -289,9 +350,13 @@ def api_live():
         uni = _universe()
         refresh = request.args.get("refresh", "0") in ("1", "true", "yes")
         path = CACHE_DIR / f"live_{_uni_prefix(uni)}{asof}.json"
-        if path.exists() and not refresh:
-            return jsonify({"status": "done", "cached": True, **json.loads(path.read_text())})
-        if refresh and path.exists():
+        payload = None if refresh else _read_cache(path)
+        if payload is not None and not _live_cache_in_window(payload, asof):
+            payload = None       # cached before today's close printed -> decided on an
+                                 # older bar than a scan run now would use
+        if payload is not None:
+            return jsonify({"status": "done", "cached": True, **payload})
+        if path.exists():
             path.unlink()
         key = f"live_{_uni_prefix(uni)}{asof}"
         _spawn_scan(key, f"scan.run_live_job({asof!r}, {str(path)!r}, "
@@ -366,6 +431,8 @@ def api_cached():
         if prefix:
             stem = stem[len(prefix):]
         if "_" in stem:
+            if not _cache_is_fresh(p):
+                continue             # stale execution model -> not instantly loadable
             sd, ed = stem.split("_", 1)
             out.append({"start": sd, "end": ed})
     return jsonify({"ranges": out, "universe": uni})

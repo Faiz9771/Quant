@@ -47,6 +47,19 @@ TIME_STOP_DAYS   = 28           # Step 7-8 time stop: no new high in ~3-4 weeks 
 INDEX_TICKER     = "^NSEI"
 MIN_VERDICTS     = ("BUY", "BUY STARTER")
 ONE_TRADE_PER_STOCK_AT_A_TIME = True
+
+# --- execution realism -------------------------------------------------------
+# The M7.1 checklist is evaluated on a bar's CLOSE, so the signal only exists once
+# that close is printed and the session is over. You cannot buy it. The fill is the
+# NEXT session's OPEN, and every trade here is simulated that way:
+#   signal_date  = the bar whose close fired BUY / BUY STARTER
+#   entry_date   = the following trading session; entry price = that session's OPEN
+#   exit search  = starts ON the entry bar (a gap/intraday move can stop you out day 1)
+ENTRY_ON          = "next_open"
+MAX_ENTRY_GAP_PCT = None        # e.g. 4.0 -> skip fills that gap >4% above the signal
+                                # close (chasing); None = take every fill.
+ENTRY_MODEL       = 2           # bump whenever entry/exit mechanics change; cached
+                                # scans built under an older model are re-run.
 # ===================================================================
 
 
@@ -505,10 +518,139 @@ def fii_features(fii_df: pd.DataFrame, date) -> dict:
 
 
 # ----------------------------- scan -----------------------------
-def _resolve_exit(df, i, entry, stop, t1):
-    """Walk forward prices from entry bar i to find the exit (stop / target / time-stop)."""
+# entry_plan() statuses. Only ENTRY_OK is a takeable trade.
+ENTRY_OK          = "confirmed"        # the open is a valid fill
+ENTRY_AWAITING    = "awaiting-open"    # the next session has not opened yet
+ENTRY_GAP_STOP    = "void-gap-stop"    # opened at/through the stop -- setup is dead
+ENTRY_GAP_WIDE    = "void-gap-wide"    # opened further above the signal than allowed
+ENTRY_BAD_DATA    = "no-data"          # missing / unusable prices
+
+
+# NSE equity session, for deciding whether a daily bar is FINAL. A bar dated today is
+# still forming while the market is open -- its "Close" is just the last trade and its
+# volume is partial -- so the checklist must never be evaluated on it.
+IST              = "Asia/Kolkata"
+NSE_CLOSE_IST    = (15, 30)
+BAR_SETTLE_MIN   = 45      # minutes after 15:30 before today's bar is trusted as final.
+                           # NSE's official close is a 30-min weighted average published
+                           # ~15:40-16:00, and free feeds lag, so a bar read at 15:35 can
+                           # still be the last trade rather than the settled close.
+
+
+def now_ist() -> pd.Timestamp:
+    return pd.Timestamp.now(tz="UTC").tz_convert(IST)
+
+
+def session_is_final(ts, now=None) -> bool:
+    """True once the NSE close has printed (plus a settle margin) for the bar dated `ts`.
+
+    Servers run in UTC, so this is computed in IST explicitly rather than from local time.
+    """
+    now = now if now is not None else now_ist()
+    d = pd.Timestamp(ts).date()
+    if d < now.date():
+        return True
+    if d > now.date():
+        return False
+    cutoff = (pd.Timestamp(d, tz=IST)
+              + pd.Timedelta(hours=NSE_CLOSE_IST[0], minutes=NSE_CLOSE_IST[1] + BAR_SETTLE_MIN))
+    return now >= cutoff
+
+
+def decision_window(now=None) -> str:
+    """Which close a live scan run *right now* decides on, derived from the clock alone.
+
+    Used as a cache key: it flips exactly when the decision bar can change (16:15 IST), so a
+    watchlist cached during market hours -- decided on yesterday's close -- is never replayed
+    after today's close has printed. It does not need to name a real trading day; it only has
+    to be constant within a window and different across windows.
+    """
+    now = now if now is not None else now_ist()
+    cutoff = (pd.Timestamp(now.date(), tz=IST)
+              + pd.Timedelta(hours=NSE_CLOSE_IST[0], minutes=NSE_CLOSE_IST[1] + BAR_SETTLE_MIN))
+    d = now.date() if now >= cutoff else (now.date() - timedelta(days=1))
+    return d.isoformat()
+
+
+def last_final_session(sessions, asof=None, now=None):
+    """The most recent COMPLETED session at/before `asof` -- the bar the checklist may use.
+
+    Scanned intraday, the feed's last row is today's half-formed bar; it is dropped here so
+    a live scan always decides on yesterday's close (or the last true close), never on a
+    price that is still moving.
+    """
+    idx = pd.DatetimeIndex(sessions)
+    if asof is not None:
+        idx = idx[idx <= pd.Timestamp(asof)]
+    while len(idx) and not session_is_final(idx[-1], now=now):
+        idx = idx[:-1]
+    return idx[-1] if len(idx) else None
+
+
+def entry_plan(df, i, res):
+    """Turn a signal fired on the CLOSE of bar `i` into the trade you could actually take.
+
+    The checklist needs bar i's close, so the signal does not exist until that session is
+    over -- the earliest possible fill is the NEXT session's OPEN. This always returns a
+    dict carrying a `status`, so the live watchlist can SAY why a signal is or isn't still
+    takeable while the backtest just tests `status == ENTRY_OK` (identical rules, one
+    implementation -- the pill on the dashboard can never drift from the simulated fill).
+
+    Statuses:
+      ENTRY_OK        the open is a valid fill; price/t1/t2 are set
+      ENTRY_AWAITING  no next session in the data yet (scanned before the open)
+      ENTRY_GAP_STOP  the open is at/through the stop -- entering would book a
+                      fabricated ~0-risk trade, so the signal is void
+      ENTRY_GAP_WIDE  the open gapped further above the signal close than MAX_ENTRY_GAP_PCT
+
+    Stops are STRUCTURAL levels (base low - 1.5%, or SMA50), so they carry over to the fill
+    unchanged -- a gap up genuinely widens your risk, exactly as in real life. Targets are
+    measured moves, so they are rebased onto the actual fill.
+    """
+    def _out(status, **kw):
+        base = dict(status=status, idx=None, date=None, price=None, stop=None,
+                    t1=None, t2=None, gap_pct=None, signal_close=None)
+        base.update(kw)
+        return base
+
+    j = i + 1
+    if j >= len(df):
+        return _out(ENTRY_AWAITING)
+    try:
+        sig_close = float(res["Entry"])
+        entry = float(df["Open"].iloc[j])
+        stop = float(res["Stop"])
+        t1 = float(res["T1"]); t2 = float(res["T2"])
+    except (TypeError, ValueError):
+        return _out(ENTRY_BAD_DATA)
+    if not (entry > 0) or not (sig_close > 0) or entry != entry:
+        return _out(ENTRY_BAD_DATA)
+    gap_pct = (entry / sig_close - 1) * 100
+    common = dict(idx=j, date=df.index[j], price=entry, stop=stop,
+                  t1=entry + (t1 - sig_close), t2=entry + (t2 - sig_close),
+                  gap_pct=gap_pct, signal_close=sig_close)
+    if entry <= stop:
+        return _out(ENTRY_GAP_STOP, **common)
+    if MAX_ENTRY_GAP_PCT is not None and gap_pct > MAX_ENTRY_GAP_PCT:
+        return _out(ENTRY_GAP_WIDE, **common)
+    return _out(ENTRY_OK, **common)
+
+
+def plan_entry(df, i, res):
+    """The takeable-trade view of entry_plan(): the plan, or None if it can't be taken."""
+    p = entry_plan(df, i, res)
+    return p if p["status"] == ENTRY_OK else None
+
+
+def _resolve_exit(df, entry_i, entry, stop, t1):
+    """Walk prices from the ENTRY bar `entry_i` to find the exit (stop / target / time-stop).
+
+    The entry bar itself is included: we are long from its open, so its own low can stop
+    us out and its own high can hit T1 on day one. When a bar touches both, the stop is
+    assumed first (conservative -- intraday order is unknowable from daily bars).
+    """
     last_high = entry; bars_since_high = 0
-    for j in range(i + 1, min(i + 1 + 120, len(df))):
+    for j in range(entry_i, min(entry_i + 120, len(df))):
         hi = float(df["High"].iloc[j]); lo = float(df["Low"].iloc[j]); cpx = float(df["Close"].iloc[j])
         if hi > last_high:
             last_high = hi; bars_since_high = 0
@@ -520,7 +662,7 @@ def _resolve_exit(df, i, entry, stop, t1):
             return t1, df.index[j], "target"
         if bars_since_high >= TIME_STOP_DAYS:
             return cpx, df.index[j], "time-stop"
-    j = min(i + 120, len(df) - 1)
+    j = min(entry_i + 119, len(df) - 1)
     return float(df["Close"].iloc[j]), df.index[j], "horizon"
 
 
@@ -607,8 +749,12 @@ def scan_and_simulate(start_year: int, end_year: int):
                 _log_block(ledger, res, d, "BLOCK-slots", realized); continue
             if ONE_TRADE_PER_STOCK_AT_A_TIME and res["Symbol"] in held_syms:
                 _log_block(ledger, res, d, "BLOCK-dup", realized); continue
-            entry, stop, t1 = res["Entry"], res["Stop"], res["T1"]
-            exit_px, exit_date, reason = _resolve_exit(df, i, entry, stop, t1)
+            plan = plan_entry(df, i, res)
+            if plan is None:
+                _log_block(ledger, res, d, "BLOCK-no-fill", realized); continue
+            entry, stop, t1 = plan["price"], plan["stop"], plan["t1"]
+            entry_date = pd.Timestamp(plan["date"])
+            exit_px, exit_date, reason = _resolve_exit(df, plan["idx"], entry, stop, t1)
             pct = (exit_px / entry - 1) * 100
             equity_basis = realized + sum(p["locked"] for p in open_pos)
             if SIZING == "equal":
@@ -624,10 +770,12 @@ def scan_and_simulate(start_year: int, end_year: int):
             cash -= locked
             pnl = locked * pct / 100
             open_pos.append(dict(sym=res["Symbol"], exit_date=pd.Timestamp(exit_date),
-                                 locked=locked, pnl=pnl, entry_year=d.year))
+                                 locked=locked, pnl=pnl, entry_year=entry_date.year))
             held_syms.add(res["Symbol"])
-            ledger.append(dict(sym=res["Symbol"], entry_date=d, exit_date=pd.Timestamp(exit_date),
+            ledger.append(dict(sym=res["Symbol"], signal_date=d, entry_date=entry_date,
+                               exit_date=pd.Timestamp(exit_date),
                                entry=entry, exit=exit_px, stop=stop, t1=t1, pct=pct,
+                               gap_pct=round(plan["gap_pct"], 3),
                                verdict=res["Verdict"], score=res["Score"], reason=reason,
                                status=("WIN" if pct > 0 else "LOSS"),
                                locked=locked, freed=locked + pnl, equity=realized))
@@ -645,8 +793,11 @@ def scan_and_simulate(start_year: int, end_year: int):
     log(f"[INFO] signals: {len(sig_df)} | days scanned: {days_scanned} | "
         f"days skipped (capital blocked): {days_skipped}")
     n_years = end_year - start_year + 1
+    no_fill = int((led["status"] == "BLOCK-no-fill").sum()) if not led.empty else 0
     stats_extra = dict(days_scanned=days_scanned, days_skipped=days_skipped,
                        scan_days_saved_pct=round(100*days_skipped/max(1,len(cal)), 1),
+                       entry_on=ENTRY_ON, entry_model=ENTRY_MODEL,
+                       signals_no_fill=no_fill,
                        years=n_years, year_pnl={y: round(v) for y, v in year_pnl.items()})
     return sig_df, led, prices, index_close, fii_df, cash, dd, stats_extra
 
@@ -677,11 +828,16 @@ def _scan_one_stock(tk):
         res = cl.evaluate(sn)
         if res["Verdict"] not in MIN_VERDICTS:
             continue
-        entry, stop, t1 = res["Entry"], res["Stop"], res["T1"]
-        exit_px, exit_date, reason = _resolve_exit(df, i, entry, stop, t1)
+        # the signal fires on ts's CLOSE -> the fill is the NEXT session's open
+        plan = plan_entry(df, i, res)
+        if plan is None:
+            continue
+        entry, stop, t1 = plan["price"], plan["stop"], plan["t1"]
+        entry_ts = pd.Timestamp(plan["date"])
+        exit_px, exit_date, reason = _resolve_exit(df, plan["idx"], entry, stop, t1)
         exit_ts = pd.Timestamp(exit_date)
         pct = (exit_px / entry - 1) * 100
-        tdays = positions.get(exit_ts, i) - i
+        tdays = positions.get(exit_ts, plan["idx"]) - plan["idx"]
         nclose = float(index_close.loc[ts])
         e9 = float(nifty_ema9.loc[ts]); e25 = float(nifty_ema25.loc[ts]); e50 = float(nifty_ema50.loc[ts])
         above9 = bool(nclose > e9) if e9 == e9 else None
@@ -689,10 +845,14 @@ def _scan_one_stock(tk):
         above50 = bool(nclose > e50) if e50 == e50 else None
         rows.append(dict(
             sym=res["Symbol"] or tk.replace(".NS", ""),
-            entry_date=str(ts.date()), exit_date=str(exit_ts.date()),
+            signal_date=str(ts.date()),
+            entry_date=str(entry_ts.date()), exit_date=str(exit_ts.date()),
             entry=round(entry, 2), exit=round(exit_px, 2), pct=round(pct, 3),
+            signal_close=round(plan["signal_close"], 2), gap_pct=round(plan["gap_pct"], 3),
+            stop=round(stop, 2), t1=round(plan["t1"], 2), t2=round(plan["t2"], 2),
             reason=reason, verdict=res["Verdict"], score=res["Score"],
-            stop_pct=res.get("StopPct"), t1_pct=res.get("T1Pct"),
+            stop_pct=round((stop / entry - 1) * 100, 2),
+            t1_pct=round((plan["t1"] / entry - 1) * 100, 2),
             rs=res.get("RS"), confidence=res.get("Confidence"),
             fii_status=res.get("FIIstatus"), base_height=res.get("BaseHeight"),
             mkt=segment_of(tk, largecap),
@@ -812,6 +972,8 @@ def scan_signals(start_date: str, end_date: str, progress=None, universe: str = 
         n_signals=len(out), trading_days=len(cal),
         fii_live=bool(fii_df.attrs.get("live", False)),
         universe=universe, universe_label=universe_label(universe),
+        entry_model=ENTRY_MODEL, entry_on=ENTRY_ON,
+        max_entry_gap_pct=MAX_ENTRY_GAP_PCT,
         nifty=nifty,
     )
     return out, meta
@@ -819,15 +981,29 @@ def scan_signals(start_date: str, end_date: str, progress=None, universe: str = 
 
 def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UNIVERSE):
     """
-    LIVE watchlist: run the M7.1 checklist on the MOST RECENT available bar of every
-    constituent of the chosen `universe` and return the stocks that fire BUY / BUY STARTER *right now*
-    (as of `asof`, default today). These are OPEN signals — no forward exit is resolved,
-    since the trade hasn't happened yet — so each row is an actionable entry/stop/targets
-    plan plus the live NIFTY regime and FII context.
+    LIVE watchlist, on FINAL data only.
+
+    Scanned at any hour of the day, the feed's last daily row is the session that is still
+    forming -- its "Close" is just the last traded price and its volume is partial -- so the
+    checklist is NEVER run on it. The decision bar is the most recent COMPLETED session
+    (`last_final_session`): intraday that means yesterday's close; after 15:30 IST it means
+    today's close.
+
+    Each signal then carries its NEXT-OPEN confirmation, because that open is the first price
+    you can actually pay (see entry_plan). While the market is open, today's real open is
+    already known, so every row says whether the setup is still takeable:
+        confirmed      -- the open is a valid fill; entry_at_open / t1 / t2 are rebased onto it
+        void-gap-stop  -- it opened at/through the stop; the setup is dead, do not enter
+        void-gap-wide  -- it gapped further than MAX_ENTRY_GAP_PCT allows
+        awaiting-open  -- scanned before the next session opened; fill is still ahead of you
+    The same entry_plan() decides fills in the backtest, so the pill can never disagree with
+    what the simulator would have done.
     """
     universe = normalize_universe(universe)
     asof = asof or pd.Timestamp.today().normalize().strftime("%Y-%m-%d")
-    end_dl = (pd.Timestamp(asof) + pd.Timedelta(days=2)).strftime("%Y-%m-%d")  # yf end is exclusive
+    # reach a few days past `asof` so the CONFIRMING session (the next open) is downloaded
+    # too -- for a past asof that is the following trading day, for today it is today itself.
+    end_dl = (pd.Timestamp(asof) + pd.Timedelta(days=5)).strftime("%Y-%m-%d")
     lead_start = (pd.Timestamp(asof) - pd.DateOffset(months=18)).strftime("%Y-%m-%d")
 
     tickers = get_universe_symbols(universe)
@@ -835,6 +1011,14 @@ def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UN
     index_close = get_index_close(prices, lead_start, end_dl)
     fii_df = get_fii_daily(lead_start, end_dl)
     e9, e25, e50 = cl.ema(index_close, 9), cl.ema(index_close, 25), cl.ema(index_close, 50)
+
+    # ---- the decision bar: the last session that has actually CLOSED ----
+    sig_ts = last_final_session(index_close.index, asof=asof)
+    if sig_ts is None:
+        raise RuntimeError(f"no completed trading session on/before {asof}")
+    forming = index_close.index[index_close.index > sig_ts]
+    open_ts = forming[0] if len(forming) else None      # the session whose OPEN confirms
+    now = now_ist()
 
     stock_items = [(tk, df) for tk, df in prices.items() if tk != INDEX_TICKER]
     turnover = {tk: float((df["Close"] * df["Volume"]).tail(250).median()) for tk, df in stock_items}
@@ -851,21 +1035,50 @@ def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UN
         a50 = bool(nc > e50.iloc[pos]) if e50.iloc[pos] == e50.iloc[pos] else None
         return a9, a25, a50
 
+    ff = fii_features(fii_df, sig_ts)
+    a9, a25, a50 = _regime_at(sig_ts)
     out = []
+    stale = 0
     _announce_total(progress, len(stock_items))
     for tk, df in stock_items:
-        i = len(df) - 1
+        # evaluate the SAME completed session for every stock; a name whose feed has not
+        # printed that bar is stale, and a signal off an older bar is not actionable today
+        i = int(df.index.get_indexer([sig_ts])[0])
+        if i < 0:
+            stale += 1
+            if progress: progress(tk)
+            continue
         if i < 220:
             if progress: progress(tk)
             continue
-        ts = df.index[i]
-        sn = cl.Snapshot(df, i, index_close, fii_features(fii_df, ts))
+        sn = cl.Snapshot(df, i, index_close, ff)
         res = cl.evaluate(sn)
         if res["Verdict"] in MIN_VERDICTS:
-            a9, a25, a50 = _regime_at(ts)
+            plan = entry_plan(df, i, res)
+            confirmed = plan["status"] == ENTRY_OK
+            fill = plan["price"]
             out.append(dict(
-                sym=res["Symbol"] or tk.replace(".NS", ""), date=str(ts.date()),
-                entry=res["Entry"], stop=res["Stop"], t1=res["T1"], t2=res["T2"],
+                sym=res["Symbol"] or tk.replace(".NS", ""), date=str(sig_ts.date()),
+                signal_date=str(sig_ts.date()),
+                # `entry` is the SIGNAL CLOSE (the level the checklist triggered on).
+                # It is NOT a fill: the tradeable fill is the next session's open.
+                entry=res["Entry"], signal_close=res["Entry"], entry_basis="next_open",
+                stop=res["Stop"], t1=res["T1"], t2=res["T2"],
+                # measured moves, so T1/T2 can be rebased onto the actual fill:
+                #   t1_at_fill = fill + move1   (stop stays the structural level)
+                move1=round(res["T1"] - res["Entry"], 2),
+                move2=round(res["T2"] - res["Entry"], 2),
+                # --- next-open confirmation ---
+                confirm=plan["status"], confirmed=confirmed,
+                open_date=(str(pd.Timestamp(plan["date"]).date()) if plan["date"] is not None else None),
+                entry_at_open=(round(fill, 2) if fill is not None else None),
+                gap_pct=(round(plan["gap_pct"], 3) if plan["gap_pct"] is not None else None),
+                t1_at_open=(round(plan["t1"], 2) if plan["t1"] is not None else None),
+                t2_at_open=(round(plan["t2"], 2) if plan["t2"] is not None else None),
+                stop_pct_at_open=(round((plan["stop"] / fill - 1) * 100, 2)
+                                  if (fill and plan["stop"] is not None) else None),
+                t1_pct_at_open=(round((plan["t1"] / fill - 1) * 100, 2)
+                                if (fill and plan["t1"] is not None) else None),
                 stop_pct=res.get("StopPct"), t1_pct=res.get("T1Pct"),
                 verdict=res["Verdict"], score=res["Score"], rs=res.get("RS"),
                 confidence=res.get("Confidence"), fii_status=res.get("FIIstatus"),
@@ -877,14 +1090,29 @@ def live_scan(asof: str | None = None, progress=None, universe: str = DEFAULT_UN
         if progress:
             progress(tk)
 
-    out.sort(key=lambda r: r["score"], reverse=True)
-    last_ts = index_close.index[-1]
-    a9, a25, a50 = _regime_at(last_ts)
+    # confirmed first, then by score -- what you can still act on rises to the top
+    out.sort(key=lambda r: (r["confirm"] != ENTRY_OK, -r["score"]))
+    n_conf = sum(1 for r in out if r["confirm"] == ENTRY_OK)
+    n_void = sum(1 for r in out if r["confirm"] in (ENTRY_GAP_STOP, ENTRY_GAP_WIDE))
+    if open_ts is not None:
+        note = (f"Signals decided on the {sig_ts.date()} close (the last completed session) "
+                f"and confirmed against the {open_ts.date()} open, which is your fill.")
+    else:
+        note = (f"Signals decided on the {sig_ts.date()} close (the last completed session). "
+                f"The next session has not opened yet -- your fill is that open.")
     meta = dict(
-        asof=str(last_ts.date()), requested=asof, n_stocks=len(stock_items),
+        asof=str(sig_ts.date()), requested=asof, n_stocks=len(stock_items),
         n_signals=len(out), fii_live=bool(fii_df.attrs.get("live", False)),
         universe=universe, universe_label=universe_label(universe),
-        nifty_close=round(float(index_close.iloc[-1]), 2),
+        entry_model=ENTRY_MODEL, entry_on=ENTRY_ON,
+        signal_bar=str(sig_ts.date()),
+        open_bar=(str(open_ts.date()) if open_ts is not None else None),
+        scanned_at_ist=now.strftime("%Y-%m-%d %H:%M IST"),
+        decision_window=decision_window(now),
+        market_open_now=bool(open_ts is not None and not session_is_final(open_ts, now=now)),
+        n_confirmed=n_conf, n_void=n_void, n_stale=stale,
+        entry_note=note,
+        nifty_close=round(float(index_close.loc[sig_ts]), 2),
         nifty_above_9ema=a9, nifty_above_25ema=a25, nifty_above_50ema=a50,
     )
     return out, meta
@@ -1016,7 +1244,7 @@ def run_live_job(asof, out_path, status_path, universe=DEFAULT_UNIVERSE):
 
 
 def _log_block(ledger, res, d, status, realized):
-    ledger.append(dict(sym=res["Symbol"], entry_date=d, exit_date=pd.NaT,
+    ledger.append(dict(sym=res["Symbol"], signal_date=d, entry_date=pd.NaT, exit_date=pd.NaT,
                        entry=res["Entry"], exit=np.nan, stop=res["Stop"], t1=res["T1"],
                        pct=np.nan, verdict=res["Verdict"], score=res["Score"],
                        reason="", status=status, locked=0, freed=0, equity=realized))
